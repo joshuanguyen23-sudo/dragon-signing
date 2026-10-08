@@ -110,7 +110,7 @@ connectBtn.addEventListener('click', async () => {
     const accounts = await provider.request({ method: 'eth_requestAccounts' });
     if (!accounts || !accounts.length) { showErr('No account returned. Unlock the wallet and try again.', null); return; }
     account = accounts[0];
-    if (account.toLowerCase() !== EXPECTED) {
+    if (account.toLowerCase() !== EXPECTED.toLowerCase()) {
       showErr('Connected account is NOT the MasterDragor creator profile. Connected: ' + account + ' — switch to the 0x47cD\u2026E2F profile in Coinbase Wallet, then tap Connect again.', null);
       signBtn.disabled = true;
       return;
@@ -125,7 +125,7 @@ connectBtn.addEventListener('click', async () => {
 // NOTE: no accountsChanged auto-reload — it was wiping error messages off the screen.
 if (window.ethereum && window.ethereum.on) {
   window.ethereum.on('accountsChanged', (accts) => {
-    if (accts && accts.length && accts[0].toLowerCase() === EXPECTED) {
+    if (accts && accts.length && accts[0].toLowerCase() === EXPECTED.toLowerCase()) {
       account = accts[0];
       setStatus('Profile detected: ' + account + ' \u2713 Tap Sign Message.', 'ok');
       signBtn.disabled = false;
