@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guardians of Limbo — JOSH23 transfer</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#0b0e14;color:#e8e6df;padding:24px;line-height:1.5}
+.card{max-width:640px;margin:0 auto;background:#131722;border:1px solid #f5c518;border-radius:14px;padding:22px}
+h1{font-size:19px;margin:0 0 4px;color:#f5c518}
+.kv{margin:10px 0;padding:10px 12px;background:#0b0e14;border:1px solid #2a3040;border-radius:8px;font-size:13px;word-break:break-all}
+.kv b{color:#f5c518;display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+button{width:100%;padding:15px;border:0;border-radius:10px;font-size:16px;font-weight:700;background:#f5c518;color:#141414;margin-top:14px}
+#sendBtn:disabled{opacity:.4}
+.err{color:#ff7a7a}.ok{color:#7aff9a}
+.note{font-size:13px;color:#a9b2c3}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>JOSH23 — move 50,000,000 to the fee wallet</h1>
+<p class="note">Guardians of Limbo · one call, prepared for Joshua's own signature.</p>
+<div class="kv"><b>You sign from (must match)</b><code>0x47cD551DE390355C1bf7088797B795e0AbB78E2F</code></div>
+<div class="kv"><b>Contract called</b><code>0xcd942cc2805901eb441eb6111a542e7f0686bccd</code> (JOSH23, Base)</div>
+<div class="kv"><b>Function</b><code>transfer(address,uint256)</code> = 0xa9059cbb</div>
+<div class="kv"><b>Recipient</b><code>0xF8C1BA9F9f0448A8be590E4B8bcDc0408D24df1c</code> (joshuanguyen23.base.eth, JOSH23 fee wallet)</div>
+<div class="kv"><b>Amount</b><code>50000000 JOSH23</code> (raw: 50000000000000000000000000)</div>
+<div class="kv"><b>Calldata</b><code>0xa9059cbb000000000000000000000000f8c1ba9f9f0448a8be590e4b8bcdc0408d24df1c000000000000000000000000000000000000000000295be96e64066972000000</code></div>
+<div class="kv"><b>Decoded check</b><code id="decoded">…</code></div>
+<div class="kv"><b>Connected wallet (live)</b><code id="who">not connected yet</code></div>
+<button id="connectBtn">Connect wallet</button>
+<button id="sendBtn" disabled>Review tx in wallet (opens wallet sheet)</button>
+<p id="status" class="note"></p>
+<p class="note">Careful: the wallet may show this as an account-abstraction submission whose summary mentions the EntryPoint (0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789, v0.6) — for your smart-account profile that is the normal route and means it IS proceeding; do not cancel it for that. Check the decoded recipient and amount on this page against the wallet's sheet before signing; if the wallet shows a different contract or recipient, stop and screenshot it instead of signing. You press connect and sign yourself; this page never holds a key.</p>
+<p class="note">If no Review/Sign button appears in the wallet after you tap, do not keep tapping blindly — screenshot what the wallet shows and send it to Dragon.</p>
+</div>
+<script>
+const TO="0xcd942cc2805901eb441eb6111a542e7f0686bccd", DATA="0xa9059cbb000000000000000000000000f8c1ba9f9f0448a8be590e4b8bcdc0408d24df1c000000000000000000000000000000000000000000295be96e64066972000000", MUST="0x47cD551DE390355C1bf7088797B795e0AbB78E2F".toLowerCase();
+const statusEl=document.getElementById("status"), whoEl=document.getElementById("who");
+function setStatus(t,cls){statusEl.textContent=t;statusEl.className=cls||"note";}
+function decode(d){
+  const sel=d.slice(0,10);
+  const to="0x"+d.slice(34,74);
+  const amt=BigInt("0x"+d.slice(74,138));
+  return sel+" transfer to "+to+" amount "+amt.toString()+" raw ("+(amt/10n**18n).toString()+" JOSH23)";
+}
+document.getElementById("decoded").textContent=decode(DATA);
+let accounts=[];
+async function ensureBase(){
+  const id=await ethereum.request({method:"eth_chainId"});
+  if(id!=="0x2105"){
+    try{await ethereum.request({method:"wallet_switchEthereumChain",params:[{chainId:"0x2105"}]});}
+    catch(e){if(e.code===4902){await ethereum.request({method:"wallet_addEthereumChain",params:[{chainId:"0x2105",chainName:"Base",nativeCurrency:{name:"Ether",symbol:"ETH",decimals:18},rpcUrls:["https://mainnet.base.org"],blockExplorerUrls:["https://basescan.org"]}]});await ethereum.request({method:"wallet_switchEthereumChain",params:[{chainId:"0x2105"}]});}else throw e;}
+  }
+}
+document.getElementById("connectBtn").onclick=async()=>{
+  try{
+    if(!window.ethereum){setStatus("No wallet provider on this page. Open this link inside Coinbase Wallet's in-app browser.","err");return;}
+    await ensureBase();
+    accounts=await ethereum.request({method:"eth_requestAccounts"});
+    if(!accounts.length){setStatus("Wallet returned no account.","err");return;}
+    whoEl.textContent=accounts[0];
+    if(accounts[0].toLowerCase()!==MUST){setStatus("Connected wallet is NOT the masterdragor creator profile. Switch profiles and reconnect.","err");return;}
+    setStatus("Connected: masterdragor creator profile, Base network. Review the decoded data, then send.","ok");
+    document.getElementById("sendBtn").disabled=false;
+  }catch(e){setStatus("Connect error: "+(e.message||e),"err");}
+};
+document.getElementById("sendBtn").onclick=async()=>{
+  try{
+    if(!accounts.length||accounts[0].toLowerCase()!==MUST){setStatus("Connect the masterdragor profile first.","err");return;}
+    await ensureBase();
+    setStatus("Opening the wallet sheet — review contract, recipient and amount, then sign in the wallet.");
+    const h=await ethereum.request({method:"eth_sendTransaction",params:[{from:accounts[0],to:TO,data:DATA,value:"0x0"}]});
+    setStatus("Sent — remember, with this smart-account profile a 'Submitted to EntryPoint' / UserOperation-style receipt is GOOD; it means the bundler is carrying it. Send result: "+h,"ok");
+  }catch(e){setStatus("Send error: "+(e.message||e),"err");}
+};
+</script>
+</body>
+</html>
