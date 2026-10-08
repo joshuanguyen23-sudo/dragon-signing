@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MasterDragor Creator — Ownership Proof</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; background: #0d1117; color: #e6edf3; }
+  .card { max-width: 560px; margin: 0 auto; background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .sub { color: #9da7b1; font-size: 14px; margin-bottom: 16px; }
+  .msg { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, monospace; font-size: 13px; }
+  .addr { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+  button { width: 100%; padding: 14px; font-size: 16px; border: 0; border-radius: 10px; background: #1f6feb; color: #fff; margin-top: 14px; cursor: pointer; }
+  button:disabled { background: #30363d; color: #9da7b1; }
+  #status { margin-top: 14px; font-size: 14px; min-height: 20px; }
+  .ok { color: #3fb950; } .warn { color: #d29922; } .err { color: #f85149; }
+  .sig { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; word-break: break-all; font-family: ui-monospace, monospace; font-size: 12px; display: none; }
+  .note { color: #9da7b1; font-size: 13px; margin-top: 14px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>MasterDragor Creator — Ownership Proof</h1>
+  <div class="sub">Guardians of Limbo · sign-a-message proof · no transaction, nothing moves</div>
+
+  <p>Expected profile (MasterDragorNFT creator):</p>
+  <div class="addr">0x47cD551DE390355C1bf7088797B795e0AbB78E2F</div>
+
+  <p style="margin-top:16px">You will sign exactly this message:</p>
+  <div class="msg" id="msg">I control this address: 0x47cD551DE390355C1bf7088797B795e0AbB78E2F
+Signed by: Joshua
+Date: 2026-10-07
+Purpose: ownership verification for Dragon</div>
+
+  <button id="connectBtn">Connect Wallet</button>
+  <button id="signBtn" disabled>Sign Message</button>
+  <div id="status"></div>
+  <div class="sig" id="sigBox"></div>
+  <button id="copyBtn" style="display:none">Copy Signature</button>
+
+  <div class="note">
+    Signing this plain-text message cannot move funds or approve anything.
+    It only proves you hold the key for this profile. After signing, copy the
+    signature and paste it to Dragon in chat — Dragon verifies the math and
+    does the rest. This page never asks for a private key or seed phrase.
+  </div>
+</div>
+
+<script>
+const EXPECTED = "0x47cd551de390355c1bf7088797b795e0abB78e2f";
+const MESSAGE = document.getElementById('msg').textContent;
+const statusEl = document.getElementById('status');
+const connectBtn = document.getElementById('connectBtn');
+const signBtn = document.getElementById('signBtn');
+const sigBox = document.getElementById('sigBox');
+const copyBtn = document.getElementById('copyBtn');
+let account = null;
+let lastSig = null;
+
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ''; }
+function findProvider() { if (window.ethereum) return window.ethereum; return null; }
+let providerWatch = setInterval(() => { if (findProvider()) clearInterval(providerWatch); }, 500);
+setTimeout(() => clearInterval(providerWatch), 15000);
+
+async function getProviderOrWait() {
+  let p = findProvider();
+  if (p) return p;
+  for (let i = 0; i < 20; i++) { await new Promise(r => setTimeout(r, 500)); p = findProvider(); if (p) return p; }
+  return null;
+}
+
+connectBtn.addEventListener('click', async () => {
+  const provider = await getProviderOrWait();
+  if (!provider) { setStatus('No wallet found. Open this page inside Coinbase Wallet\u2019s in-app browser, on the 0x47cD\u2026E2F profile, then tap Connect again.', 'warn'); return; }
+  try {
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+    if (!accounts || !accounts.length) { setStatus('No account returned. Unlock the wallet and try again.', 'warn'); return; }
+    account = accounts[0];
+    if (account.toLowerCase() !== EXPECTED) {
+      setStatus('Connected: ' + account + ' — this is NOT the MasterDragor creator profile. Switch to the 0x47cD\u2026E2F profile in Coinbase Wallet, then reconnect.', 'err');
+      signBtn.disabled = true;
+      return;
+    }
+    setStatus('Connected: ' + account + ' \u2713 This is the MasterDragor creator profile. Tap Sign Message.', 'ok');
+    signBtn.disabled = false;
+  } catch (e) { setStatus('Connect was cancelled or failed. Tap Connect Wallet to try again.', 'err'); }
+});
+
+if (window.ethereum && window.ethereum.on) { window.ethereum.on('accountsChanged', () => location.reload()); }
+
+function toHex(str) { let hex = ''; for (let i = 0; i < str.length; i++) hex += str.charCodeAt(i).toString(16).padStart(2, '0'); return '0x' + hex; }
+
+signBtn.addEventListener('click', async () => {
+  const provider = findProvider();
+  if (!provider || !account) { setStatus('Connect the wallet first.', 'warn'); return; }
+  const hexMsg = toHex(MESSAGE);
+  try {
+    let sig;
+    try { sig = await provider.request({ method: 'personal_sign', params: [hexMsg, account] }); }
+    catch (e1) { sig = await provider.request({ method: 'personal_sign', params: [account, hexMsg] }); }
+    lastSig = sig;
+    sigBox.textContent = sig;
+    sigBox.style.display = 'block';
+    copyBtn.style.display = 'block';
+    setStatus('Signed \u2713 Now copy the signature below and paste it to Dragon in chat.', 'ok');
+  } catch (e) { setStatus('Signing was cancelled or failed. Nothing was signed \u2014 tap Sign Message to try again.', 'err'); }
+});
+
+copyBtn.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(lastSig); copyBtn.textContent = 'Copied \u2713'; }
+  catch (e) { setStatus('Copy failed \u2014 long-press the signature text to copy it manually.', 'warn'); }
+});
+</script>
+</body>
+</html>
