@@ -15,6 +15,8 @@
   button:disabled { background: #30363d; color: #9da7b1; }
   #status { margin-top: 14px; font-size: 14px; min-height: 20px; }
   .ok { color: #3fb950; } .warn { color: #d29922; } .err { color: #f85149; }
+  #errBox { display: none; margin-top: 14px; background: #2d1214; border: 1px solid #f85149; border-radius: 8px; padding: 12px; }
+  #errBox .detail { font-family: ui-monospace, monospace; font-size: 11px; color: #ffb4ab; word-break: break-word; white-space: pre-wrap; margin-top: 8px; }
   .sig { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; word-break: break-all; font-family: ui-monospace, monospace; font-size: 12px; display: none; }
   .note { color: #9da7b1; font-size: 13px; margin-top: 14px; line-height: 1.5; }
 </style>
@@ -36,6 +38,7 @@ Purpose: ownership verification for Dragon</div>
   <button id="connectBtn">Connect Wallet</button>
   <button id="signBtn" disabled>Sign Message</button>
   <div id="status"></div>
+  <div id="errBox"><div id="errTitle"></div><div class="detail" id="errDetail"></div></div>
   <div class="sig" id="sigBox"></div>
   <button id="copyBtn" style="display:none">Copy Signature</button>
 
@@ -44,6 +47,7 @@ Purpose: ownership verification for Dragon</div>
     It only proves you hold the key for this profile. After signing, copy the
     signature and paste it to Dragon in chat — Dragon verifies the math and
     does the rest. This page never asks for a private key or seed phrase.
+    If anything goes wrong, the red box stays on screen — tell Dragon what it says.
   </div>
 </div>
 
@@ -51,6 +55,9 @@ Purpose: ownership verification for Dragon</div>
 const EXPECTED = "0x47cd551de390355c1bf7088797b795e0abB78e2f";
 const MESSAGE = document.getElementById('msg').textContent;
 const statusEl = document.getElementById('status');
+const errBox = document.getElementById('errBox');
+const errTitle = document.getElementById('errTitle');
+const errDetail = document.getElementById('errDetail');
 const connectBtn = document.getElementById('connectBtn');
 const signBtn = document.getElementById('signBtn');
 const sigBox = document.getElementById('sigBox');
@@ -59,57 +66,115 @@ let account = null;
 let lastSig = null;
 
 function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ''; }
+function clearErr() { errBox.style.display = 'none'; errTitle.textContent = ''; errDetail.textContent = ''; }
+function showErr(title, e) {
+  // Sticky: stays until the next successful action. No auto-dismiss, no reload.
+  errTitle.textContent = title;
+  let d = '';
+  try {
+    if (e) {
+      if (e.code !== undefined) d += 'code: ' + e.code + '\n';
+      if (e.message) d += 'message: ' + e.message + '\n';
+      if (e.data) d += 'data: ' + (typeof e.data === 'string' ? e.data : JSON.stringify(e.data)) + '\n';
+      if (!d) d = String(e);
+    }
+  } catch (_) { d = 'unreadable error object'; }
+  errDetail.textContent = d;
+  errBox.style.display = 'block';
+}
 function findProvider() { if (window.ethereum) return window.ethereum; return null; }
+
+// Watch for lazy provider injection (Coinbase Wallet injects after load).
 let providerWatch = setInterval(() => { if (findProvider()) clearInterval(providerWatch); }, 500);
 setTimeout(() => clearInterval(providerWatch), 15000);
 
 async function getProviderOrWait() {
   let p = findProvider();
   if (p) return p;
-  for (let i = 0; i < 20; i++) { await new Promise(r => setTimeout(r, 500)); p = findProvider(); if (p) return p; }
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    p = findProvider();
+    if (p) return p;
+  }
   return null;
 }
 
 connectBtn.addEventListener('click', async () => {
+  clearErr();
   const provider = await getProviderOrWait();
-  if (!provider) { setStatus('No wallet found. Open this page inside Coinbase Wallet\u2019s in-app browser, on the 0x47cD\u2026E2F profile, then tap Connect again.', 'warn'); return; }
+  if (!provider) {
+    showErr('No wallet found on this page. Open this link inside Coinbase Wallet\u2019s in-app browser, on the 0x47cD\u2026E2F profile, then tap Connect again.', null);
+    return;
+  }
   try {
     const accounts = await provider.request({ method: 'eth_requestAccounts' });
-    if (!accounts || !accounts.length) { setStatus('No account returned. Unlock the wallet and try again.', 'warn'); return; }
+    if (!accounts || !accounts.length) { showErr('No account returned. Unlock the wallet and try again.', null); return; }
     account = accounts[0];
     if (account.toLowerCase() !== EXPECTED) {
-      setStatus('Connected: ' + account + ' — this is NOT the MasterDragor creator profile. Switch to the 0x47cD\u2026E2F profile in Coinbase Wallet, then reconnect.', 'err');
+      showErr('Connected account is NOT the MasterDragor creator profile. Connected: ' + account + ' — switch to the 0x47cD\u2026E2F profile in Coinbase Wallet, then tap Connect again.', null);
       signBtn.disabled = true;
       return;
     }
     setStatus('Connected: ' + account + ' \u2713 This is the MasterDragor creator profile. Tap Sign Message.', 'ok');
     signBtn.disabled = false;
-  } catch (e) { setStatus('Connect was cancelled or failed. Tap Connect Wallet to try again.', 'err'); }
+  } catch (e) {
+    showErr('Connect failed inside the wallet. The details below tell Dragon exactly why:', e);
+  }
 });
 
-if (window.ethereum && window.ethereum.on) { window.ethereum.on('accountsChanged', () => location.reload()); }
+// NOTE: no accountsChanged auto-reload — it was wiping error messages off the screen.
+if (window.ethereum && window.ethereum.on) {
+  window.ethereum.on('accountsChanged', (accts) => {
+    if (accts && accts.length && accts[0].toLowerCase() === EXPECTED) {
+      account = accts[0];
+      setStatus('Profile detected: ' + account + ' \u2713 Tap Sign Message.', 'ok');
+      signBtn.disabled = false;
+      clearErr();
+    }
+  });
+}
 
-function toHex(str) { let hex = ''; for (let i = 0; i < str.length; i++) hex += str.charCodeAt(i).toString(16).padStart(2, '0'); return '0x' + hex; }
+function toHex(str) {
+  let hex = '';
+  for (let i = 0; i < str.length; i++) hex += str.charCodeAt(i).toString(16).padStart(2, '0');
+  return '0x' + hex;
+}
 
 signBtn.addEventListener('click', async () => {
+  clearErr();
   const provider = findProvider();
-  if (!provider || !account) { setStatus('Connect the wallet first.', 'warn'); return; }
+  if (!provider || !account) { showErr('Connect the wallet first, then tap Sign Message.', null); return; }
   const hexMsg = toHex(MESSAGE);
-  try {
-    let sig;
-    try { sig = await provider.request({ method: 'personal_sign', params: [hexMsg, account] }); }
-    catch (e1) { sig = await provider.request({ method: 'personal_sign', params: [account, hexMsg] }); }
+  const attempts = [
+    { label: 'hex message, account second', params: [hexMsg, account] },
+    { label: 'account first, hex message second', params: [account, hexMsg] },
+    { label: 'plain message, account second', params: [MESSAGE, account] }
+  ];
+  let sig = null, lastErr = null;
+  for (const a of attempts) {
+    try {
+      sig = await provider.request({ method: 'personal_sign', params: a.params });
+      if (sig) break;
+    } catch (e) {
+      lastErr = e;
+      // User rejection (4001) is final — do not keep prompting other variants.
+      if (e && e.code === 4001) break;
+    }
+  }
+  if (sig) {
     lastSig = sig;
     sigBox.textContent = sig;
     sigBox.style.display = 'block';
     copyBtn.style.display = 'block';
     setStatus('Signed \u2713 Now copy the signature below and paste it to Dragon in chat.', 'ok');
-  } catch (e) { setStatus('Signing was cancelled or failed. Nothing was signed \u2014 tap Sign Message to try again.', 'err'); }
+    return;
+  }
+  showErr('Signing failed. If you did not tap Cancel, send Dragon the details below:', lastErr);
 });
 
 copyBtn.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(lastSig); copyBtn.textContent = 'Copied \u2713'; }
-  catch (e) { setStatus('Copy failed \u2014 long-press the signature text to copy it manually.', 'warn'); }
+  catch (e) { showErr('Copy failed — long-press the signature text above to copy it manually.', null); }
 });
 </script>
 </body>
