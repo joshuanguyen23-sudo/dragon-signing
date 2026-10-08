@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Guardians of Limbo — Wallet Ownership Proof</title>
+<!-- Guardians Pact: every Limbo build carries the pact banner. Ownership proof only; this page moves no funds and requests no transaction. -->
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; line-height: 1.45; color: #111; }
+  .card { max-width: 720px; margin: 0 auto; border: 1px solid #ddd; border-radius: 16px; padding: 20px; }
+  code, pre { background: #f6f6f6; border-radius: 8px; padding: 2px 5px; word-break: break-all; white-space: pre-wrap; }
+  pre { padding: 12px; }
+  button { width: 100%; padding: 14px; margin: 10px 0; font-size: 17px; border-radius: 12px; border: 0; background: #111; color: #fff; }
+  button.secondary { background: #eee; color: #111; }
+  button:disabled { opacity: .45; }
+  .ok { color: #087500; font-weight: 700; }
+  .bad { color: #b00020; font-weight: 700; }
+  .muted { color: #666; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>Guardians of Limbo — Wallet Ownership Proof</h2>
+  <p>This page asks your wallet to <b>sign a plain message only</b>. It does <b>not</b> send a transaction, move funds, approve tokens, or ask for any key or seed phrase.</p>
+
+  <p><b>Expected wallet:</b><br><code id="expected">0x7eC3983e7b2046acb22ded93e3c2c1b28653A2db</code></p>
+
+  <p><b>Exact message to sign:</b></p>
+  <pre id="message">I control this address: 0x7eC3983e7b2046acb22ded93e3c2c1b28653A2db
+Signed by: Joshua
+Date: 2026-10-08
+Purpose: ownership verification for Dragon</pre>
+
+  <button id="connect">Connect wallet</button>
+  <button id="sign" disabled>Sign proof message</button>
+  <button id="copy" class="secondary" disabled>Copy result for Dragon</button>
+
+  <p id="status" class="muted">Open this page inside the wallet app that controls the expected wallet above.</p>
+  <p><b>Connected account:</b><br><code id="account">not connected</code></p>
+  <p><b>Signature:</b></p>
+  <pre id="signature">No signature yet.</pre>
+</div>
+
+<script>
+const EXPECTED = "0x7eC3983e7b2046acb22ded93e3c2c1b28653A2db";
+const MESSAGE = document.getElementById('message').innerText;
+const statusEl = document.getElementById('status');
+const accountEl = document.getElementById('account');
+const sigEl = document.getElementById('signature');
+const connectBtn = document.getElementById('connect');
+const signBtn = document.getElementById('sign');
+const copyBtn = document.getElementById('copy');
+let account = null;
+let signature = null;
+
+function sameAddress(a, b) { return !!a && !!b && a.toLowerCase() === b.toLowerCase(); }
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ''; }
+function provider() { return window.ethereum || null; }
+
+async function refreshAccounts() {
+  const p = provider();
+  if (!p) { setStatus('No Ethereum wallet provider found. Open this link inside your wallet app browser.', 'bad'); return; }
+  try {
+    const accounts = await p.request({ method: 'eth_accounts' });
+    if (accounts && accounts.length) {
+      account = accounts[0];
+      accountEl.textContent = account;
+      if (sameAddress(account, EXPECTED)) {
+        setStatus('Connected wallet matches the expected wallet. You can sign the proof.', 'ok');
+        signBtn.disabled = false;
+      } else {
+        setStatus('Connected wallet does NOT match the expected wallet. Switch accounts in your wallet, then reconnect.', 'bad');
+        signBtn.disabled = true;
+      }
+    }
+  } catch (e) { /* user may need to tap connect first */ }
+}
+
+connectBtn.onclick = async () => {
+  const p = provider();
+  if (!p) { setStatus('No Ethereum wallet provider found. Open this link inside your wallet app browser.', 'bad'); return; }
+  try {
+    setStatus('Requesting wallet connection…');
+    const accounts = await p.request({ method: 'eth_requestAccounts' });
+    account = accounts && accounts[0];
+    accountEl.textContent = account || 'not connected';
+    if (sameAddress(account, EXPECTED)) {
+      setStatus('Connected wallet matches the expected wallet. You can sign the proof.', 'ok');
+      signBtn.disabled = false;
+    } else {
+      setStatus('Connected wallet does NOT match the expected wallet. Switch accounts in your wallet, then reconnect.', 'bad');
+      signBtn.disabled = true;
+    }
+  } catch (e) {
+    setStatus('Connection was rejected or failed. Unlock the wallet and try again.', 'bad');
+  }
+};
+
+signBtn.onclick = async () => {
+  const p = provider();
+  if (!p || !account) return;
+  if (!sameAddress(account, EXPECTED)) { setStatus('Refusing to sign: connected wallet does not match the expected wallet.', 'bad'); return; }
+  try {
+    setStatus('Waiting for your signature in the wallet…');
+    signature = await p.request({ method: 'personal_sign', params: [MESSAGE, account] });
+    sigEl.textContent = signature;
+    copyBtn.disabled = false;
+    setStatus('Signed. Copy the result and send it back to Dragon for verification.', 'ok');
+  } catch (e) {
+    setStatus('Signature was rejected or failed. Nothing was signed.', 'bad');
+  }
+};
+
+copyBtn.onclick = async () => {
+  const text = 'Address: ' + EXPECTED + '\nMessage:\n' + MESSAGE + '\nSignature: ' + signature;
+  try { await navigator.clipboard.writeText(text); setStatus('Copied. Paste it back to Dragon.', 'ok'); }
+  catch (e) { setStatus('Copy failed. Long-press the signature text to copy it manually.', 'bad'); }
+};
+
+if (provider() && provider().on) {
+  provider().on('accountsChanged', refreshAccounts);
+}
+refreshAccounts();
+</script>
+</body>
+</html>
