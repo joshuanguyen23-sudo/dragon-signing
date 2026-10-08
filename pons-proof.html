@@ -1,0 +1,97 @@
+<!doctype html>
+<!-- THE GUARDIANS PACT — Joshua Nguyen, 2026-10-02. Verify first, only Joshua signs, Dragon never holds keys. -->
+<!-- Purpose: Solana sign-MESSAGE ownership proof (PONS origin cross-check). Signs a message only.
+     Cannot move funds. Cannot approve anything. Never asks for seed words. Byte-verified by Dragon. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limbo Proof — Phantom message signature</title>
+<style>
+  body { font-family: Georgia, serif; background:#0c0f14; color:#e8e4d8; margin:0; padding:24px; }
+  .card { max-width:640px; margin:0 auto; background:#141a22; border:1px solid #2a3646; border-radius:12px; padding:24px; }
+  h1 { font-size:20px; margin:0 0 8px; }
+  p, li { line-height:1.5; font-size:15px; }
+  .warn { color:#ffb347; } .ok { color:#7ee787; } .err { color:#ff7b72; }
+  button { background:#8957e5; color:#fff; border:0; border-radius:8px; padding:12px 18px; font-size:15px; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  textarea, .out { width:100%; box-sizing:border-box; background:#0c0f14; color:#e8e4d8; border:1px solid #2a3646; border-radius:8px; padding:10px; font-family:monospace; font-size:12px; word-break:break-all; }
+  .label { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#8b98a9; margin:16px 0 4px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Limbo Proof — Phantom signature</h1>
+  <p>This page asks Phantom to sign a <b>message</b> — nothing else. Signing a message cannot move funds, cannot approve a transaction, and never touches your recovery phrase. If anything ever asks for seed words, stop and close it.</p>
+  <ol>
+    <li>Open this page inside Phantom's built-in browser.</li>
+    <li>Tap <b>Connect Phantom</b> and approve the connection.</li>
+    <li>Tap <b>Sign the proof message</b> and confirm in Phantom.</li>
+    <li>Copy the signature below and send it to Dragon with the wallet address shown.</li>
+  </ol>
+  <p><button id="connect">Connect Phantom</button> <span id="connState"></span></p>
+  <div class="label">Your wallet address (must match the one on record)</div>
+  <div class="out" id="addrOut">—</div>
+  <div class="label">Exact message you will sign</div>
+  <textarea id="msgOut" rows="5" readonly>—</textarea>
+  <p><button id="sign" disabled>Sign the proof message</button> <span id="signState"></span></p>
+  <div class="label">Your signature (send this to Dragon)</div>
+  <textarea id="sigOut" rows="4" readonly placeholder="signature appears here"></textarea>
+</div>
+<script>
+"use strict";
+var BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function b58encode(bytes){
+  var zeros = 0; while (zeros < bytes.length && bytes[zeros] === 0) zeros++;
+  var digits = [0];
+  for (var i = zeros; i < bytes.length; i++){
+    var carry = bytes[i];
+    for (var j = 0; j < digits.length; j++){ carry += digits[j] << 8; digits[j] = carry % 58; carry = (carry / 58) | 0; }
+    while (carry){ digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  var out = "";
+  for (var z = 0; z < zeros; z++) out += "1";
+  for (var k = digits.length - 1; k >= 0; k--) out += BASE58[digits[k]];
+  return out;
+}
+function buildMessage(address){
+  return "Guardians of Limbo - ownership proof\n" +
+    "I control the Solana wallet:\n" + address + "\n" +
+    "Purpose: PONS origin cross-check (proof only).\n" +
+    "This signature moves no funds and approves nothing.";
+}
+var provider = null, address = null;
+var $ = function(id){ return document.getElementById(id); };
+$("connect").onclick = async function(){
+  try {
+    if (!window.solana || !window.solana.isPhantom) {
+      $("connState").innerHTML = "<span class='err'>Phantom not found — open this page inside Phantom's browser.</span>";
+      return;
+    }
+    provider = window.solana;
+    var resp = await provider.connect();
+    address = resp.publicKey.toString();
+    $("addrOut").textContent = address;
+    $("msgOut").value = buildMessage(address);
+    $("connState").innerHTML = "<span class='ok'>connected</span>";
+    $("sign").disabled = false;
+  } catch (e) {
+    $("connState").innerHTML = "<span class='err'>" + (e && e.message ? e.message : String(e)) + "</span>";
+  }
+};
+$("sign").onclick = async function(){
+  try {
+    var msg = buildMessage(address);
+    var encoded = new TextEncoder().encode(msg);
+    var signed = await provider.signMessage(encoded, "utf8");
+    var sigBytes = signed.signature;
+    var arr = sigBytes instanceof Uint8Array ? sigBytes : new Uint8Array(sigBytes);
+    $("sigOut").value = b58encode(arr);
+    $("signState").innerHTML = "<span class='ok'>signed — copy the signature and send it to Dragon</span>";
+  } catch (e) {
+    $("signState").innerHTML = "<span class='err'>" + (e && e.message ? e.message : String(e)) + "</span>";
+  }
+};
+</script>
+</body>
+</html>
