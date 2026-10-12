@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<link rel="icon" href="data:," />
+<title>Guardians of Limbo — Rescue Console</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --surface: #12151d;
+    --surface-2: #171b26;
+    --border: #232939;
+    --text: #eef1f6;
+    --muted: #9aa3b4;
+    --accent: #2f6df6;
+    --accent-hover: #3d7bff;
+    --accent-text: #ffffff;
+    --ok: #34c77b;
+    --ok-dim: #16311f;
+    --warn: #f0b94e;
+    --warn-bg: #241c0e;
+    --error: #f06e6e;
+    --error-bg: #251312;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 600px; margin: 0 auto; padding: 28px 18px 48px; }
+  header { margin-bottom: 20px; }
+  h1 { font-size: 23px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0; font-size: 14px; }
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    margin: 0 0 14px;
+  }
+  .step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .step-head h2 { font-size: 15px; margin: 0; font-weight: 600; flex: 1; }
+  .num {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--muted); font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+  }
+  .step.done .num { background: var(--ok-dim); border-color: var(--ok-dim); color: var(--ok); }
+  .pill {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+    flex: none;
+  }
+  .pill.done { color: var(--ok); border-color: #1f3d2c; background: var(--ok-dim); }
+  .btn {
+    display: block; width: 100%;
+    min-height: 50px; padding: 13px 16px;
+    border: 1px solid transparent; border-radius: 10px;
+    font-size: 15px; font-weight: 600; text-align: center;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-text); }
+  .btn.primary:enabled:hover { background: var(--accent-hover); }
+  .btn.secondary { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+  .btn.secondary:enabled:hover { border-color: #313a4e; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.big { min-height: 56px; font-size: 16px; }
+  .addr, .mono {
+    font-family: var(--mono); font-size: 12.5px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; margin: 12px 0 0;
+    word-break: break-all; line-height: 1.6; color: var(--text);
+  }
+  .row { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; }
+  .row .btn { margin: 0; }
+  .kv {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; padding: 10px 0; border-top: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .kv:first-child { border-top: none; padding-top: 2px; }
+  .kv span:first-child { color: var(--muted); flex: none; }
+  .kv code, .kv .val {
+    font-family: var(--mono); font-size: 12.5px; text-align: right; word-break: break-all;
+  }
+  .summary-card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; font-size: 14px; margin-bottom: 12px;
+  }
+  .callout {
+    border-radius: 10px; padding: 13px 14px; font-size: 14px; margin: 12px 0;
+    border: 1px solid var(--border);
+  }
+  .callout.warn { background: var(--warn-bg); border-color: #3d3119; }
+  .callout.warn strong { color: var(--warn); }
+  .callout.error { background: var(--error-bg); border-color: #44201e; color: var(--text); }
+  .callout.error strong { color: var(--error); }
+  .callout.ok { background: var(--ok-dim); border-color: #1f3d2c; }
+  .callout.ok strong { color: var(--ok); }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; cursor: pointer; }
+  .check input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
+  .fine { color: var(--muted); font-size: 12.5px; margin: 12px 0 0; }
+  a.txlink {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--accent-hover); font-weight: 600; font-size: 14px;
+    text-decoration: none; margin: 4px 0 12px;
+  }
+  a.txlink:hover { text-decoration: underline; }
+  .success-panel h2 { margin-top: 0; }
+  .note { font-size: 14px; color: var(--text); }
+  .hidden { display: none !important; }
+  .netline { font-family: var(--mono); font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+  .netline b { color: var(--text); font-weight: 600; }
+  .estimate-out { margin: 14px 0; }
+  svg.ico { width: 15px; height: 15px; flex: none; }
+  .text-input {
+    width: 100%; min-height: 48px; padding: 12px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-family: var(--mono); font-size: 13px;
+  }
+  .text-input:focus { outline: none; border-color: var(--accent); }
+  .qr-box {
+    background: #ffffff; border-radius: 12px; padding: 16px;
+    display: flex; justify-content: center; margin: 14px 0 4px;
+  }
+  .qr-box canvas { display: block; max-width: 100%; height: auto; }
+  .or-divider {
+    display: flex; align-items: center; gap: 12px; margin: 18px 0 12px;
+    color: var(--muted); font-size: 12.5px;
+  }
+  .or-divider::before, .or-divider::after {
+    content: ""; flex: 1; border-top: 1px solid var(--border);
+  }
+  .uri-row { display: flex; gap: 8px; margin-top: 12px; }
+  .uri-row .text-input { flex: 1; min-height: 44px; font-size: 11.5px; }
+  .uri-row .btn { width: auto; flex: none; min-height: 44px; padding: 10px 14px; }
+  a.btn { text-decoration: none; }
+  .pair-steps { margin: 14px 0 4px; padding: 0 0 0 22px; font-size: 14px; }
+  .pair-steps li { margin: 0 0 8px; }
+  .pair-steps li::marker { color: var(--accent); font-weight: 700; }
+
+  .uri { width:100%; box-sizing:border-box; font-family:ui-monospace,monospace; font-size:12px; }
+  .qrwrap { text-align:center; margin:12px 0; }
+  .qrwrap canvas { background:#fff; border-radius:8px; }
+  .statusline { font-size:13px; word-break:break-all; }
+  code { word-break:break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Guardians of Limbo — Rescue Console</h1>
+  <p>This page moves funds out of the compromised wallet <code>0x55Fa9aAc40Af97FAaB697cc74d4dA452abf0272c</code> into your proven Phantom wallet <code>0x0c9efbf29e554050415c9b5b8757fecc51bf74d7</code>. It connects to the compromised wallet in your BitPay app through WalletConnect — BitPay needs no browser; it only receives each signing request.</p>
+  <p>Each step below is <b>one transaction</b> with <b>one signature</b> in BitPay. Nothing here ever asks for a key or seed phrase. Proceeds land <b>directly</b> in the Phantom wallet — they never sit in the compromised wallet.</p>
+
+  <div id="errBox" class="callout error hidden"><strong>Something went wrong:</strong> <span id="errText"></span></div>
+
+  <section class="step" id="stepConnect">
+    <h3>1 — Connect the compromised wallet (BitPay)</h3>
+    <button class="btn primary big" id="wcConnectBtn" disabled>Loading secure libraries…</button>
+    <button class="btn hidden" id="disconnectBtn">Disconnect</button>
+    <div id="wcPanel" class="hidden">
+      <p class="fine">In BitPay: open <b>WalletConnect</b> (the scan / link icon), choose <b>enter a connection URI</b>, paste the pairing link below, approve, and pick the wallet that holds <code>0x55Fa9aAc40Af97FAaB697cc74d4dA452abf0272c</code>.</p>
+      <div class="qrwrap"><canvas id="wcQr" width="264" height="264"></canvas></div>
+      <label for="wcUri">Pairing link</label>
+      <textarea id="wcUri" class="uri" rows="3" readonly></textarea>
+      <button class="btn" id="wcCopyBtn">Copy pairing link</button>
+      <button class="btn" id="wcCancelBtn">Cancel</button>
+    </div>
+    <div id="addrBox" class="callout ok hidden"></div>
+  </section>
+
+  <section class="hidden" id="stepsSection">
+    <section class="step" id="step1Card">
+      <h3>Step 1 — Steakhouse vault (Ethereum)</h3>
+      <div class="kv"><span>Action</span><code>Redeem all Steakhouse shares</code></div>
+      <div class="kv"><span>Shares</span><code>283,570.86 STEAKUSDC</code></div>
+      <div class="kv"><span>You receive</span><code>≈ 293,586.64 USDC</code></div>
+      <div class="kv"><span>Goes to</span><code>0x0c9efbf29e554050415c9b5b8757fecc51bf74d7</code></div>
+      <button class="btn primary big" id="step1Btn" data-label="Sign step 1 in BitPay">Sign step 1 in BitPay</button>
+      <p class="statusline" id="step1Status"></p>
+      <a class="txlink hidden" id="step1Link" href="#" target="_blank" rel="noopener">View on Etherscan</a>
+    </section>
+
+    <section class="step" id="step2Card">
+      <h3>Step 2 — USDC already in the wallet (Ethereum)</h3>
+      <div class="kv"><span>Action</span><code>Send the USDC balance</code></div>
+      <div class="kv"><span>Amount</span><code>1,000.00 USDC</code></div>
+      <div class="kv"><span>Goes to</span><code>0x0c9efbf29e554050415c9b5b8757fecc51bf74d7</code></div>
+      <button class="btn primary big" id="step2Btn" data-label="Sign step 2 in BitPay">Sign step 2 in BitPay</button>
+      <p class="statusline" id="step2Status"></p>
+      <a class="txlink hidden" id="step2Link" href="#" target="_blank" rel="noopener">View on Etherscan</a>
+    </section>
+
+    <section class="step" id="step3Card">
+      <h3>Step 3 — ETH (Ethereum, last)</h3>
+      <div class="kv"><span>Action</span><code>Send ETH, keeping a small gas reserve back</code></div>
+      <div class="kv hidden" id="ethAmtRow"><span>Amount</span><code id="ethAmt">—</code></div>
+      <div class="kv"><span>Goes to</span><code>0x0c9efbf29e554050415c9b5b8757fecc51bf74d7</code></div>
+      <button class="btn primary big" id="step3Btn" data-label="Prepare ETH amount">Prepare ETH amount</button>
+      <p class="statusline" id="step3Status"></p>
+      <a class="txlink hidden" id="step3Link" href="#" target="_blank" rel="noopener">View on Etherscan</a>
+    </section>
+
+    <section class="step" id="step4Card">
+      <h3>Step 4 — VaultV2 on Base</h3>
+      <p class="fine">Being prepared by Dragon — this step unlocks after the vault's exit path is verified on-chain. Nothing to sign here yet.</p>
+    </section>
+  </section>
+
+  <p class="note">After each signature, tell Dragon — he verifies the result on-chain before the next step.</p>
+</main>
+
+<script>
+window.__RESCUE_LIBS_OK = false;
+(function () {
+  var SC = [["rescue-sc-1.txt", "2ad1a0dbff5486ba602f70b7a788325314c9ac4daa3ebae18b2e4a66578fd131"], ["rescue-sc-2.txt", "953cf5b18897883a064fe6a9d63da20faf801df7602c30e71376210d8baaf013"], ["rescue-sc-3.txt", "cb31fd37f991c8b97e22823ca7858bfd6a12a8cb1927dae4623b8f8b88f5b604"], ["rescue-sc-4.txt", "0beea9cf5aff842b36174a236d12aebaa64c344586b5c82933d2d5d0060be2f2"], ["rescue-sc-5.txt", "c0c803121354ea4cde18eb983c47526777f5c476f8b32a90e9d8af6a19ff79e2"], ["rescue-sc-6.txt", "d398d5d4c8ebb817d77be8e899335bcb8bb6e50d05e5a0426c4c1590ff1394d0"]];
+  var QR = [["rescue-qr.txt", "00d7a4cb694b2fc4fc3b0916dc728227feec62cbbcc43a318c02d34dd6df3b92"]];
+  function sha256hex(buf) {
+    return crypto.subtle.digest("SHA-256", buf).then(function (h) {
+      return Array.from(new Uint8Array(h)).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+    });
+  }
+  function fetchChunk(u) {
+    return fetch(u, { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error("could not load " + u);
+      return r.arrayBuffer();
+    });
+  }
+  function getAll(list) {
+    var parts = [];
+    var chain = Promise.resolve();
+    list.forEach(function (c) {
+      chain = chain.then(function () {
+        return fetchChunk(c[0]).then(function (buf) {
+          return sha256hex(buf).then(function (h) {
+            if (h !== c[1]) throw new Error("integrity check failed for " + c[0]);
+            parts.push(new TextDecoder().decode(buf));
+          });
+        });
+      });
+    });
+    return chain.then(function () { return parts.join(""); });
+  }
+  window.__libsReady = Promise.all([getAll(SC), getAll(QR)]).then(function (res) {
+    res.forEach(function (code) {
+      var s = document.createElement("script");
+      s.textContent = code;
+      document.head.appendChild(s);
+    });
+    window.__RESCUE_LIBS_OK = true;
+    var b = document.getElementById("wcConnectBtn");
+    if (b) { b.disabled = false; b.textContent = "Connect BitPay wallet"; }
+  }).catch(function (e) {
+    var t = document.getElementById("errText");
+    var box = document.getElementById("errBox");
+    if (t && box) {
+      t.textContent = "Secure libraries failed to load or verify (" + e.message + "). Reload the page; if it persists, tell Dragon.";
+      box.classList.remove("hidden");
+    }
+  });
+})();
+</script>
+<script>
+"use strict";
+
+/* Guardians of Limbo — Rescue Console logic.
+   Transport: WalletConnect v2 to the BitPay-held wallet (no browser in
+   BitPay; the session + signatures travel over the WC relay).
+   Every step is ONE eth_sendTransaction, signed in BitPay, verified by
+   Dragon on-chain afterwards. Calldata below was machine-built from
+   live chain reads and decode-asserted before this page was published. */
+
+var REOWN_PROJECT_ID = "bdb981c082ec6f7a1617d0b8961f5bb6";
+var EXPECTED_FROM = "0x55Fa9aAc40Af97FAaB697cc74d4dA452abf0272c";
+var RECEIVER = "0x0c9efbf29e554050415c9b5b8757fecc51bf74d7";
+var STEAK_VAULT = "0xbeef088055857739C12CD3765F20b7679Def0f51";
+var USDC_MAINNET = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+var STEAK_DATA = "0xba087652000000000000000000000000000000000000000000003c0c6834532442bc65eb0000000000000000000000000c9efbf29e554050415c9b5b8757fecc51bf74d700000000000000000000000055fa9aac40af97faab697cc74d4da452abf0272c";
+var USDC_DATA = "0xa9059cbb0000000000000000000000000c9efbf29e554050415c9b5b8757fecc51bf74d7000000000000000000000000000000000000000000000000000000003b9aca00";
+var EXPECTED_STEAK_RAW = "283570858618957164471787";
+var EXPECTED_USDC_RAW = "1000000000";
+var MAINNET_RPCS = ["https://ethereum.publicnode.com", "https://eth.llamarpc.com"];
+
+var signClient = null;
+var wcSession = null;
+var wcRun = null;
+var ethArmed = null; // BigInt value computed on first tap of step 3
+
+function $(id) { return document.getElementById(id); }
+function show(el) { el.classList.remove("hidden"); }
+function hide(el) { el.classList.add("hidden"); }
+
+function showError(msg) {
+  $("errText").textContent = msg;
+  show($("errBox"));
+  $("errBox").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+function clearError() { hide($("errBox")); $("errText").textContent = ""; }
+
+function errorMessage(err) {
+  if (!err) return "Unknown error.";
+  var code = err && (err.code !== undefined ? err.code : (err.data && err.data.code));
+  if (code === 4001) return "You rejected the request in your wallet.";
+  if (err.message) {
+    var m = String(err.message);
+    if (/user rejected|user denied|rejected/i.test(m)) return "You rejected the request in your wallet.";
+    return m.length > 300 ? m.slice(0, 300) + "…" : m;
+  }
+  try { return JSON.stringify(err).slice(0, 300); } catch (e) { return "Unknown error."; }
+}
+
+function rpcAny(method, params) {
+  function attempt(i) {
+    if (i >= MAINNET_RPCS.length) return Promise.reject(new Error("Network read failed. Check your connection and try again."));
+    return fetch(MAINNET_RPCS[i], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: method, params: params })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.error) throw new Error(j.error.message || "RPC error");
+      return j.result;
+    }).catch(function () { return attempt(i + 1); });
+  }
+  return attempt(0);
+}
+
+function balanceOf(token, who) {
+  var data = "0x70a08231" + who.slice(2).toLowerCase().padStart(64, "0");
+  return rpcAny("eth_call", [{ to: token, data: data }, "latest"]).then(function (hex) {
+    return BigInt(hex);
+  });
+}
+
+function drawQr(text) {
+  var canvas = $("wcQr");
+  if (!canvas) return;
+  var ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (typeof qrcode !== "function") return;
+  try {
+    var qr = qrcode(0, "M");
+    qr.addData(text);
+    qr.make();
+    var n = qr.getModuleCount();
+    var quiet = 4;
+    var total = n + quiet * 2;
+    var scale = Math.floor(canvas.width / total);
+    if (scale < 1) scale = 1;
+    var offset = Math.floor((canvas.width - total * scale) / 2);
+    ctx.fillStyle = "#000000";
+    for (var r = 0; r < n; r++) {
+      for (var c = 0; c < n; c++) {
+        if (qr.isDark(r, c)) ctx.fillRect(offset + (c + quiet) * scale, offset + (r + quiet) * scale, scale, scale);
+      }
+    }
+  } catch (e) { /* URI stays copyable below */ }
+}
+
+/* ---------------- WalletConnect session ---------------- */
+
+function wcClient() {
+  if (signClient) return Promise.resolve(signClient);
+  var WC = window["@walletconnect/sign-client"];
+  if (!WC || !WC.SignClient || typeof WC.SignClient.init !== "function") {
+    return Promise.reject(new Error("The WalletConnect library didn't load. Reload the page and try again."));
+  }
+  return WC.SignClient.init({
+    projectId: REOWN_PROJECT_ID,
+    metadata: {
+      name: "Guardians of Limbo — Rescue Console",
+      description: "Move funds out of a compromised wallet into Joshua's proven Phantom wallet. One signature per step.",
+      url: "https://joshuanguyen23-sudo.github.io/dragon-signing/",
+      icons: []
+    }
+  }).then(function (client) {
+    signClient = client;
+    client.on("session_delete", function (ev) {
+      if (wcSession && ev && ev.topic === wcSession.topic) { wcSession = null; onDisconnected(); }
+    });
+    client.on("session_expire", function (ev) {
+      if (wcSession && ev && ev.topic === wcSession.topic) {
+        wcSession = null;
+        onDisconnected();
+        showError("The wallet connection expired. Connect again to continue.");
+      }
+    });
+    return client;
+  });
+}
+
+function stopWcWait() {
+  if (wcRun) wcRun.cancelled = true;
+  wcRun = null;
+  hide($("wcPanel"));
+  $("wcConnectBtn").disabled = false;
+  $("wcConnectBtn").textContent = "Connect BitPay wallet";
+}
+
+function onDisconnected() {
+  hide($("addrBox"));
+  hide($("stepsSection"));
+  $("wcConnectBtn").disabled = false;
+  $("wcConnectBtn").textContent = "Connect BitPay wallet";
+}
+
+function onConnected() {
+  $("addrBox").textContent = "Connected wallet: " + EXPECTED_FROM + " — matches the compromised wallet. Steps are armed.";
+  show($("addrBox"));
+  $("wcConnectBtn").textContent = "Connected";
+  $("wcConnectBtn").disabled = true;
+  show($("stepsSection"));
+  $("stepsSection").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+function wcConnect() {
+  clearError();
+  if (!window.__RESCUE_LIBS_OK) { showError("Secure libraries are still loading — wait a moment and tap again."); return; }
+  if (wcSession) return;
+  $("wcConnectBtn").disabled = true;
+  $("wcConnectBtn").textContent = "Setting up secure connection…";
+  var run = wcRun = { cancelled: false };
+  var setupTimer = setTimeout(function () {
+    if (run.cancelled || wcSession) return;
+    stopWcWait();
+    showError("Couldn't reach the WalletConnect relay in time. Check your internet connection, then tap connect again.");
+  }, 30000);
+  wcClient().then(function (client) {
+    if (run.cancelled) return null;
+    return client.connect({
+      requiredNamespaces: {
+        eip155: {
+          chains: ["eip155:1", "eip155:8453"],
+          methods: ["eth_sendTransaction"],
+          events: ["chainChanged", "accountsChanged"]
+        }
+      }
+    });
+  }).then(function (res) {
+    if (!res || run.cancelled) return;
+    if (res.uri) {
+      clearTimeout(setupTimer);
+      $("wcUri").value = res.uri;
+      drawQr(res.uri);
+      show($("wcPanel"));
+      $("wcConnectBtn").textContent = "Waiting for BitPay approval…";
+    }
+    res.approval().then(function (session) {
+      if (run.cancelled) return;
+      var accounts = [];
+      try { accounts = session.namespaces.eip155.accounts || []; } catch (e) { /* ignore */ }
+      var found = false;
+      for (var i = 0; i < accounts.length; i++) {
+        var a = String(accounts[i]).split(":").pop();
+        if (a && a.toLowerCase() === EXPECTED_FROM.toLowerCase()) found = true;
+      }
+      stopWcWait();
+      if (!found) {
+        try { signClient.disconnect({ topic: session.topic, reason: { code: 6000, message: "Wrong wallet" } }); } catch (e) { /* ignore */ }
+        showError("That connection didn't include the wallet " + EXPECTED_FROM + ". In BitPay, pick the wallet that holds that address, then connect again.");
+        return;
+      }
+      wcSession = session;
+      onConnected();
+    }, function (err) {
+      if (run.cancelled) return;
+      stopWcWait();
+      showError(errorMessage(err));
+    });
+  }).catch(function (err) {
+    if (run.cancelled) return;
+    clearTimeout(setupTimer);
+    stopWcWait();
+    showError(errorMessage(err));
+  });
+}
+
+function sendTx(chainIdNum, tx) {
+  if (!signClient || !wcSession) return Promise.reject(new Error("The wallet connection is closed. Connect again."));
+  tx.from = EXPECTED_FROM;
+  return signClient.request({
+    topic: wcSession.topic,
+    chainId: "eip155:" + chainIdNum,
+    request: { method: "eth_sendTransaction", params: [tx] }
+  });
+}
+
+/* ---------------- Steps ---------------- */
+
+function markDone(btnId, statusId, linkId, hash, explorerBase) {
+  var b = $(btnId);
+  b.textContent = "Signed — sent";
+  b.disabled = true;
+  $(statusId).textContent = "Transaction: " + hash;
+  var a = $(linkId);
+  a.href = explorerBase + hash;
+  show(a);
+}
+
+function runStep(btnId, statusId, linkId, explorerBase, precheck, tx, chainIdNum) {
+  clearError();
+  var b = $(btnId);
+  b.disabled = true;
+  b.textContent = "Checking…";
+  precheck().then(function () {
+    b.textContent = "Waiting for your signature in BitPay…";
+    return sendTx(chainIdNum, tx);
+  }).then(function (hash) {
+    markDone(btnId, statusId, linkId, hash, explorerBase);
+  }).catch(function (err) {
+    b.disabled = false;
+    b.textContent = b.getAttribute("data-label") || "Sign";
+    showError(errorMessage(err));
+  });
+}
+
+function step1() {
+  runStep("step1Btn", "step1Status", "step1Link", "https://etherscan.io/tx/", function () {
+    return balanceOf(STEAK_VAULT, EXPECTED_FROM).then(function (bal) {
+      if (bal !== BigInt(EXPECTED_STEAK_RAW)) {
+        throw new Error("The Steakhouse share balance changed since this page was built. Stop here and tell Dragon — the page gets rebuilt with fresh numbers.");
+      }
+    });
+  }, { to: STEAK_VAULT, data: STEAK_DATA, value: "0x0" }, 1);
+}
+
+function step2() {
+  runStep("step2Btn", "step2Status", "step2Link", "https://etherscan.io/tx/", function () {
+    return balanceOf(USDC_MAINNET, EXPECTED_FROM).then(function (bal) {
+      if (bal < BigInt(EXPECTED_USDC_RAW)) {
+        throw new Error("The USDC balance dropped below the amount on this page. Stop here and tell Dragon — the page gets rebuilt with fresh numbers.");
+      }
+    });
+  }, { to: USDC_MAINNET, data: USDC_DATA, value: "0x0" }, 1);
+}
+
+function fmtEth(wei) {
+  var s = wei.toString();
+  while (s.length < 19) s = "0" + s;
+  var ip = s.slice(0, s.length - 18).replace(/^0+(?=\d)/, "") || "0";
+  var fp = s.slice(s.length - 18).slice(0, 6).replace(/0+$/, "");
+  return fp ? ip + "." + fp : ip;
+}
+
+function step3() {
+  clearError();
+  var b = $("step3Btn");
+  if (ethArmed === null) {
+    b.disabled = true;
+    b.textContent = "Reading balance…";
+    Promise.all([
+      rpcAny("eth_getBalance", [EXPECTED_FROM, "latest"]),
+      rpcAny("eth_gasPrice", [])
+    ]).then(function (res) {
+      var bal = BigInt(res[0]);
+      var gp = BigInt(res[1]);
+      var reserve = 21000n * gp * 3n;
+      if (reserve < 4000000000000000n) reserve = 4000000000000000n; // keep at least 0.004 ETH back
+      var value = bal - reserve;
+      if (value <= 0n) throw new Error("ETH balance is too low to move after keeping a gas reserve.");
+      ethArmed = value;
+      $("ethAmt").textContent = fmtEth(value) + " ETH";
+      show($("ethAmtRow"));
+      b.disabled = false;
+      b.textContent = "Tap again to send " + fmtEth(value) + " ETH";
+    }).catch(function (err) {
+      b.disabled = false;
+      b.textContent = b.getAttribute("data-label") || "Prepare ETH amount";
+      showError(errorMessage(err));
+    });
+    return;
+  }
+  var valueHex = "0x" + ethArmed.toString(16);
+  b.disabled = true;
+  b.textContent = "Waiting for your signature in BitPay…";
+  sendTx(1, { to: RECEIVER, value: valueHex }).then(function (hash) {
+    markDone("step3Btn", "step3Status", "step3Link", hash, "https://etherscan.io/tx/");
+  }).catch(function (err) {
+    b.disabled = false;
+    b.textContent = "Tap again to send " + fmtEth(ethArmed) + " ETH";
+    showError(errorMessage(err));
+  });
+}
+
+/* ---------------- init ---------------- */
+
+function init() {
+  $("wcConnectBtn").addEventListener("click", wcConnect);
+  $("wcCancelBtn").addEventListener("click", function () { stopWcWait(); });
+  $("disconnectBtn").addEventListener("click", function () {
+    clearError();
+    if (signClient && wcSession) {
+      var topic = wcSession.topic;
+      wcSession = null;
+      try { Promise.resolve(signClient.disconnect({ topic: topic, reason: { code: 6000, message: "User disconnected" } })).catch(function () {}); } catch (e) { /* ignore */ }
+    }
+    onDisconnected();
+  });
+  $("wcCopyBtn").addEventListener("click", function () {
+    var text = $("wcUri").value;
+    function mark() {
+      $("wcCopyBtn").textContent = "Copied — now paste it in BitPay";
+      setTimeout(function () { $("wcCopyBtn").textContent = "Copy pairing link"; }, 2500);
+    }
+    if (!text) { mark(); return; }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(text).then(mark, mark);
+    } else {
+      $("wcUri").focus();
+      $("wcUri").select();
+      try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+      mark();
+    }
+  });
+  $("step1Btn").addEventListener("click", step1);
+  $("step2Btn").addEventListener("click", step2);
+  $("step3Btn").addEventListener("click", step3);
+}
+
+document.addEventListener("DOMContentLoaded", init);
+
+</script>
+</body>
+</html>
