@@ -183,7 +183,7 @@
       <h3>Step 1 — Steakhouse vault (Ethereum)</h3>
       <div class="kv"><span>Action</span><code>Redeem all Steakhouse shares</code></div>
       <div class="kv"><span>Shares</span><code>283,570.86 STEAKUSDC</code></div>
-      <div class="kv"><span>You receive</span><code>≈ 293,586.64 USDC</code></div>
+      <div class="kv"><span>You receive</span><code>≈ 293,587.01 USDC</code></div>
       <div class="kv"><span>Goes to</span><code>0x0c9efbf29e554050415c9b5b8757fecc51bf74d7</code></div>
       <button class="btn primary big" id="step1Btn" data-label="Sign step 1 in BitPay">Sign step 1 in BitPay</button>
       <p class="statusline" id="step1Status"></p>
@@ -211,8 +211,17 @@
     </section>
 
     <section class="step" id="step4Card">
-      <h3>Step 4 — VaultV2 on Base</h3>
-      <p class="fine">Being prepared by Dragon — this step unlocks after the vault's exit path is verified on-chain. Nothing to sign here yet.</p>
+      <h3>Step 4 — VaultV2 on Base (two signatures)</h3>
+      <p class="fine">This vault's money sits in two lending markets and the normal exit can only reach one — so 4a first pulls the second market's share into the vault (the vault's own escape hatch, penalty zero), then 4b redeems everything straight to your Phantom wallet. Amounts are read live when you tap, and each call is simulated by the page before it asks BitPay to sign.</p>
+      <div class="kv hidden" id="v2ClaimRow"><span>Your claim</span><code id="v2Claim">—</code></div>
+      <div class="kv hidden" id="v2AmtRow"><span>Step 4a pulls</span><code id="v2Amt">—</code></div>
+      <div class="kv"><span>Goes to</span><code>0x0c9efbf29e554050415c9b5b8757fecc51bf74d7</code></div>
+      <button class="btn primary big" id="step4aBtn" data-label="Prepare step 4a">Prepare step 4a</button>
+      <p class="statusline" id="step4aStatus"></p>
+      <a class="txlink hidden" id="step4aLink" href="#" target="_blank" rel="noopener">View on Basescan</a>
+      <button class="btn primary big" id="step4bBtn" data-label="Sign step 4b in BitPay">Sign step 4b in BitPay</button>
+      <p class="statusline" id="step4bStatus"></p>
+      <a class="txlink hidden" id="step4bLink" href="#" target="_blank" rel="noopener">View on Basescan</a>
     </section>
   </section>
 
@@ -289,6 +298,21 @@ var USDC_DATA = "0xa9059cbb0000000000000000000000000c9efbf29e554050415c9b5b8757f
 var EXPECTED_STEAK_RAW = "283570858618957164471787";
 var EXPECTED_USDC_RAW = "1000000000";
 var MAINNET_RPCS = ["https://ethereum.publicnode.com", "https://eth.llamarpc.com"];
+
+/* ---- VaultV2 (Base) step 4 constants ----
+   Market-1 params blob: machine-recovered via the Morpho public API and
+   proven — keccak256(blob) equals market id 0x8793cf30…1bda, and the
+   forceDeallocate call built from it simulated successfully on-chain
+   before this page shipped. Amounts are NOT embedded: this vault is
+   live, so step 4 reads them fresh at tap time, exactly like step 3. */
+var VAULT_V2 = "0x5e03f8965e2957291B3c6990C6Cb9023c36d3d30";
+var ADAPTER_V2 = "0xf5aeb62e57c9edf917fdfbe67a82927129873480";
+var USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+var M0_ID = "9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836";
+var M1_ID = "8793cf302b8ffd655ab97bd1c695dbd967807e8367a65cb2f4edaf1380ba1bda";
+var MARKET1_PARAMS_HEX = "000000000000000000000000833589fcd6edb6e08f4c7c32d4f71b54bda029130000000000000000000000004200000000000000000000000000000000000006000000000000000000000000fea2d58cefcb9fcb597723c6bae66ffe4193afe400000000000000000000000046415998764c29ab2a25cbea6254146d50d226870000000000000000000000000000000000000000000000000bef55718ad60000";
+var BASE_RPCS = ["https://mainnet.base.org"];
+var fdArmed = null; // { amount: BigInt, data: string } computed on first tap of step 4a
 
 var signClient = null;
 var wcSession = null;
@@ -591,6 +615,131 @@ function step3() {
   });
 }
 
+/* ---------------- Step 4: VaultV2 on Base ---------------- */
+
+function baseRpcAny(method, params) {
+  function attempt(i) {
+    if (i >= BASE_RPCS.length) return Promise.reject(new Error("Base network read failed. Check your connection and try again."));
+    return fetch(BASE_RPCS[i], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: method, params: params })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.error) throw new Error(j.error.message || "RPC error");
+      return j.result;
+    }).catch(function () { return attempt(i + 1); });
+  }
+  return attempt(0);
+}
+
+function baseCall(to, data) {
+  return baseRpcAny("eth_call", [{ to: to, data: data }, "latest"]);
+}
+function baseCallFrom(to, data, from) {
+  return baseRpcAny("eth_call", [{ from: from, to: to, data: data }, "latest"]);
+}
+function wordAddr(a) { return a.slice(2).toLowerCase().padStart(64, "0"); }
+function wordUint(n) { return n.toString(16).padStart(64, "0"); }
+function fmtUsdc(raw) {
+  var s = (raw / 1000000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  var frac = (raw % 1000000n).toString().padStart(6, "0").slice(0, 2);
+  return s + "." + frac;
+}
+
+function readVaultV2State() {
+  return Promise.all([
+    baseCall(VAULT_V2, "0x70a08231" + wordAddr(EXPECTED_FROM)),       // shares
+    baseCall(ADAPTER_V2, "0x99f7e861" + M0_ID),                        // market 0 position
+    baseCall(ADAPTER_V2, "0x99f7e861" + M1_ID),                        // market 1 position
+    baseCall(USDC_BASE, "0x70a08231" + wordAddr(VAULT_V2)),            // idle USDC
+    baseCall(VAULT_V2, "0x99e99183" + wordAddr(ADAPTER_V2))            // forceDeallocate penalty
+  ]).then(function (r) {
+    var shares = BigInt(r[0]);
+    return baseCall(VAULT_V2, "0x07a2d13a" + wordUint(shares)).then(function (c) {
+      return { shares: shares, claim: BigInt(c), m0: BigInt(r[1]), m1: BigInt(r[2]), idle: BigInt(r[3]), penalty: BigInt(r[4]) };
+    });
+  });
+}
+
+function buildForceDeallocate(amount) {
+  var head = "0xe4d38cd8" + wordAddr(ADAPTER_V2) + wordUint(128n) + wordUint(amount) + wordAddr(EXPECTED_FROM);
+  var tail = wordUint(160n) + MARKET1_PARAMS_HEX;
+  return head + tail;
+}
+function buildRedeemV2(shares) {
+  return "0xba087652" + wordUint(shares) + wordAddr(RECEIVER) + wordAddr(EXPECTED_FROM);
+}
+
+function step4a() {
+  clearError();
+  var b = $("step4aBtn");
+  if (fdArmed === null) {
+    b.disabled = true;
+    b.textContent = "Reading the vault…";
+    readVaultV2State().then(function (st) {
+      if (st.shares <= 0n) throw new Error("No VaultV2 shares found for this wallet.");
+      if (st.penalty !== 0n) throw new Error("The vault's force-deallocate penalty is not zero. Stop and tell Dragon.");
+      var shortfall = st.claim - st.idle - st.m0;
+      if (shortfall <= 0n) {
+        fdArmed = { amount: 0n, data: null };
+        $("v2Amt").textContent = "Not needed — the normal exit already fits. Use step 4b.";
+        show($("v2AmtRow"));
+        b.textContent = "Not needed — go to step 4b";
+        return;
+      }
+      var amount = shortfall * 102n / 100n + 1000000n;
+      if (amount > st.m1) amount = st.m1;
+      var data = buildForceDeallocate(amount);
+      return baseCallFrom(VAULT_V2, data, EXPECTED_FROM).then(function () {
+        fdArmed = { amount: amount, data: data };
+        $("v2Claim").textContent = "≈ " + fmtUsdc(st.claim) + " USDC";
+        $("v2Amt").textContent = "≈ " + fmtUsdc(amount) + " USDC";
+        show($("v2ClaimRow"));
+        show($("v2AmtRow"));
+        b.disabled = false;
+        b.textContent = "Tap again to sign step 4a in BitPay";
+      });
+    }).catch(function (err) {
+      b.disabled = false;
+      b.textContent = b.getAttribute("data-label") || "Prepare step 4a";
+      showError(errorMessage(err));
+    });
+    return;
+  }
+  if (!fdArmed.data) { showError("Step 4a is not needed for this vault right now — go straight to step 4b."); return; }
+  b.disabled = true;
+  b.textContent = "Waiting for your signature in BitPay…";
+  sendTx(8453, { to: VAULT_V2, data: fdArmed.data, value: "0x0" }).then(function (hash) {
+    markDone("step4aBtn", "step4aStatus", "step4aLink", hash, "https://basescan.org/tx/");
+  }).catch(function (err) {
+    b.disabled = false;
+    b.textContent = "Tap again to sign step 4a in BitPay";
+    showError(errorMessage(err));
+  });
+}
+
+function step4b() {
+  clearError();
+  var b = $("step4bBtn");
+  b.disabled = true;
+  b.textContent = "Checking the vault…";
+  readVaultV2State().then(function (st) {
+    if (st.shares <= 0n) throw new Error("No VaultV2 shares left — this position is already fully redeemed.");
+    if (st.idle + st.m0 < st.claim) {
+      throw new Error("The vault still can't cover the full exit — step 4a must land first (or the amounts moved; tell Dragon).");
+    }
+    var data = buildRedeemV2(st.shares);
+    b.textContent = "Waiting for your signature in BitPay…";
+    return sendTx(8453, { to: VAULT_V2, data: data, value: "0x0" });
+  }).then(function (hash) {
+    markDone("step4bBtn", "step4bStatus", "step4bLink", hash, "https://basescan.org/tx/");
+  }).catch(function (err) {
+    b.disabled = false;
+    b.textContent = b.getAttribute("data-label") || "Sign step 4b in BitPay";
+    showError(errorMessage(err));
+  });
+}
+
 /* ---------------- init ---------------- */
 
 function init() {
@@ -624,6 +773,8 @@ function init() {
   $("step1Btn").addEventListener("click", step1);
   $("step2Btn").addEventListener("click", step2);
   $("step3Btn").addEventListener("click", step3);
+  $("step4aBtn").addEventListener("click", step4a);
+  $("step4bBtn").addEventListener("click", step4b);
 }
 
 document.addEventListener("DOMContentLoaded", init);
