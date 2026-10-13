@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bridge 12,000 USDT → USDT0 on X Layer</title>
+<style>
+  body{background:#0b0e13;color:#e8ecf1;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:18px;line-height:1.5}
+  .wrap{max-width:640px;margin:0 auto}
+  h1{font-size:22px;margin:6px 0 2px}
+  .sub{color:#9fb0c3;font-size:14px;margin-bottom:16px}
+  .card{background:#131922;border:1px solid #26303f;border-radius:12px;padding:14px 16px;margin:12px 0}
+  .row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:14px}
+  .k{color:#9fb0c3}.v{font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;text-align:right}
+  .warn{background:#2a1414;border:1px solid #6e2b2b;color:#ffb4b4;border-radius:12px;padding:12px 16px;font-size:14px;display:none}
+  .ok{color:#7ee2a0}.bad{color:#ff8080}
+  button{background:#1f6feb;color:#fff;border:0;border-radius:10px;padding:13px 18px;font-size:16px;width:100%;margin:8px 0;cursor:pointer}
+  button:disabled{background:#33404f;color:#8fa1b5;cursor:not-allowed}
+  button.ghost{background:#1b2431;border:1px solid #33404f}
+  .step{font-weight:600;margin-top:4px}
+  .hash{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+  a{color:#6cb2ff}
+  .small{font-size:13px;color:#9fb0c3}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Bridge 12,000 USDT → USDT0 on X Layer</h1>
+  <div class="sub">One move, two signatures. Nothing happens without your OKX Wallet approval on each step.</div>
+
+  <div class="card">
+    <div class="row"><span class="k">From (Ethereum)</span><span class="v">0x779Ded0c9e1022225f8E0630b35a9b54bE713736</span></div>
+    <div class="row"><span class="k">To (X Layer, chain 196)</span><span class="v">0xbcb938928e0c033f03e6e29497638ee10d99127a</span></div>
+    <div class="row"><span class="k">Amount</span><span class="v">12,000 USDT</span></div>
+    <div class="row"><span class="k">Route</span><span class="v">USDT0 official bridge (Tether / LayerZero)</span></div>
+    <div class="row"><span class="k">Bridge contract (USDT0 adapter)</span><span class="v">0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee</span></div>
+    <div class="row"><span class="k">You receive on X Layer</span><span class="v">12,000 USDT0 (token 0x779Ded0c9e1022225f8E0630b35a9b54bE713736)</span></div>
+  </div>
+
+  <div class="small">After Step 2, LayerZero delivers the USDT0 to your X Layer address — usually within a few minutes. No third signature.</div>
+
+  <div id="warn" class="warn"></div>
+
+  <div class="card">
+    <div class="step">Connect</div>
+    <div id="acct" class="small">Not connected yet. Open this page inside your OKX Wallet app browser, then connect.</div>
+    <button id="btnConnect">Connect OKX Wallet</button>
+  </div>
+
+  <div class="card">
+    <div class="step">Step 1 of 2 — Approve 12,000 USDT</div>
+    <div class="small">Lets the USDT0 bridge contract take exactly 12,000 USDT from your wallet. Nothing moves yet.</div>
+    <button id="btnApprove" disabled>Approve 12,000 USDT</button>
+    <div id="approveOut" class="hash"></div>
+  </div>
+
+  <div class="card">
+    <div class="step">Step 2 of 2 — Bridge to X Layer as USDT0</div>
+    <div class="small">First tap reads a live fee quote from the bridge contract and shows it below. The send button unlocks only after the approval is confirmed on-chain, and it re-checks the quote at signing time.</div>
+    <button id="btnBridge" disabled>Get live quote</button>
+    <div id="quoteOut" class="hash"></div>
+    <button id="btnSend" disabled style="display:none">Sign &amp; send bridge</button>
+    <div id="bridgeOut" class="hash"></div>
+  </div>
+
+  <div class="card small">
+    Safety: only sign inside your own OKX Wallet. Before each signature, check the wallet's confirmation screen shows the same contract and amount as this page. Dragon never sees or holds your keys.
+  </div>
+</div>
+
+<script>
+const SOURCE = "0x779ded0c9e1022225f8e0630b35a9b54be713736";
+const DEST   = "0xbcb938928e0c033f03e6e29497638ee10d99127a";
+const USDT   = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+const ADAPTER= "0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee";
+const DST_EID = 30274n;
+const AMOUNT  = 12000000000n; // 12,000 USDT (6 decimals)
+// Selector-verified calldata constants (decode-checked against on-chain simulations):
+const APPROVE_DATA   = "0x095ea7b30000000000000000000000006c96de32cea08842dcc4058c14d3aaad7fa41dee00000000000000000000000000000000000000000000000000000002cb417800";
+const ALLOWANCE_DATA = "0xdd62ed3e000000000000000000000000779ded0c9e1022225f8e0630b35a9b54be7137360000000000000000000000006c96de32cea08842dcc4058c14d3aaad7fa41dee";
+const SEL_QUOTE_OFT  = "0x0d35b415";
+const SEL_QUOTE_SEND = "0x3b6f743b";
+const SEL_SEND       = "0xc7c7f5b3";
+// LayerZero v3 options: executor lzReceive with 200,000 destination gas, 0 native value drop.
+const LZ_OPTS = "000301002101" + (200000).toString(16).padStart(32,"0") + (0).toString(16).padStart(32,"0");
+let account = null;
+let lastMinAmount = null;
+
+const $ = id => document.getElementById(id);
+function warn(msg){ const w=$('warn'); if(!msg){w.style.display='none';w.textContent='';return;} w.style.display='block'; w.textContent=msg; }
+function short(a){ return a.slice(0,8)+'…'+a.slice(-6); }
+function word(n){ return n.toString(16).padStart(64,"0"); }
+function b32(a){ return "000000000000000000000000" + a.slice(2).toLowerCase(); }
+
+// ABI-encode SendParam tuple (dstEid, to, amountLD, minAmountLD, extraOptions, composeMsg, oftCmd)
+function tupleEnc(amount, minAmount, extraHex){
+  const head = word(DST_EID) + b32(DEST) + word(amount) + word(minAmount);
+  const extraBytes = extraHex.length/2;
+  const padded = Math.ceil(extraBytes/32)*32;
+  const tail1 = word(BigInt(extraBytes)) + extraHex + "00".repeat(padded - extraBytes);
+  const off1 = 224, off2 = off1 + 32 + padded, off3 = off2 + 32;
+  return head + word(BigInt(off1)) + word(BigInt(off2)) + word(BigInt(off3)) + tail1 + word(0n) + word(0n);
+}
+function quoteOftData(){ return SEL_QUOTE_OFT + word(32n) + tupleEnc(AMOUNT, AMOUNT, ""); }
+function quoteSendData(minAmount){ return SEL_QUOTE_SEND + word(64n) + word(0n) + tupleEnc(AMOUNT, minAmount, LZ_OPTS); }
+function sendData(fee, minAmount){
+  return SEL_SEND + word(128n) + word(fee) + word(0n) + b32(account) + tupleEnc(AMOUNT, minAmount, LZ_OPTS);
+}
+function resWord(res, i){ return BigInt("0x" + res.slice(2 + i*64, 2 + (i+1)*64)); }
+
+async function ethCall(to, data){
+  return await ethereum.request({method:'eth_call', params:[{from:account, to:to, data:data}, 'latest']});
+}
+
+async function checkAllowance(){
+  try{
+    const res = await ethCall(USDT, ALLOWANCE_DATA);
+    return BigInt(res) >= AMOUNT;
+  }catch(e){ return false; }
+}
+
+async function connect(){
+  warn('');
+  if(!window.ethereum){ warn('No wallet found in this browser. Open this page inside the OKX Wallet app browser.'); return; }
+  try{
+    const accs = await ethereum.request({method:'eth_requestAccounts'});
+    account = (accs[0]||'').toLowerCase();
+    const chainId = await ethereum.request({method:'eth_chainId'});
+    if(chainId !== '0x1'){
+      warn('Your wallet is not on Ethereum mainnet. Switch to Ethereum (chain 1), then connect again.');
+      try{ await ethereum.request({method:'wallet_switchEthereumChain', params:[{chainId:'0x1'}]}); }catch(e){}
+      return;
+    }
+    if(account !== SOURCE){
+      $('acct').innerHTML = 'Connected: <span class="bad">'+short(account)+'</span>';
+      warn('STOP — this is not the right wallet. This page only works for '+short(SOURCE)+'. Switch accounts in OKX Wallet and connect again. Nothing was signed.');
+      $('btnApprove').disabled = true;
+      return;
+    }
+    $('acct').innerHTML = 'Connected: <span class="ok">'+short(account)+'</span> — correct wallet.';
+    if(await checkAllowance()){
+      $('approveOut').innerHTML = '<span class="ok">Approval already on-chain. Step 2 is unlocked.</span>';
+      $('btnBridge').disabled = false;
+    } else {
+      $('btnApprove').disabled = false;
+    }
+  }catch(e){ warn('Connection failed: '+(e.message||e)); }
+}
+
+async function sendTx(data, to, valueHex, outEl, label){
+  try{
+    const hash = await ethereum.request({method:'eth_sendTransaction', params:[{from:account, to:to, data:data, value:valueHex}]});
+    $(outEl).innerHTML = label+' sent. Tx: <a href="https://etherscan.io/tx/'+hash+'" target="_blank" rel="noopener">'+hash+'</a>';
+    return hash;
+  }catch(e){
+    warn(label+' was not signed/sent: '+(e.message||e));
+    return null;
+  }
+}
+
+async function waitAllowance(){
+  for(let i=0;i<40;i++){
+    if(await checkAllowance()) return true;
+    await new Promise(r=>setTimeout(r, 6000));
+  }
+  return false;
+}
+
+// Fresh quote: returns {fee, minAmount} or null (and explains itself on the page).
+async function freshQuote(){
+  // 1) quoteOFT: how much USDT0 arrives for 12,000 USDT in?
+  const oftRes = await ethCall(ADAPTER, quoteOftData());
+  const maxAmount = resWord(oftRes, 1);
+  const received  = resWord(oftRes, 3);
+  if(maxAmount < AMOUNT){ warn('STOP — the bridge limit right now ('+maxAmount.toString()+' raw) is below 12,000 USDT. Nothing was signed.'); return null; }
+  if(received !== AMOUNT){ warn('STOP — the bridge would deliver '+received.toString()+' raw units instead of exactly 12,000 USDT0. Nothing was signed.'); return null; }
+  // 2) quoteSend: the LayerZero message fee for this exact transfer.
+  const qsRes = await ethCall(ADAPTER, quoteSendData(received));
+  const fee = resWord(qsRes, 0);
+  const lzFee = resWord(qsRes, 1);
+  if(lzFee !== 0n){ warn('STOP — unexpected LZ-token fee in quote. Nothing was signed.'); return null; }
+  if(fee <= 0n || fee > 5000000000000000n){ warn('STOP — quoted fee looks wrong ('+fee.toString()+' wei). Nothing was signed.'); return null; }
+  return {fee: fee, minAmount: received};
+}
+
+$('btnConnect').onclick = connect;
+$('btnApprove').onclick = async () => {
+  if(account !== SOURCE){ warn('STOP — wrong wallet connected.'); return; }
+  $('btnApprove').disabled = true;
+  const h = await sendTx(APPROVE_DATA, USDT, '0x0', 'approveOut', 'Approval');
+  if(!h){ $('btnApprove').disabled = false; return; }
+  $('approveOut').innerHTML += '<br>Waiting for the approval to confirm on-chain…';
+  const ok = await waitAllowance();
+  if(ok){ $('approveOut').innerHTML += '<br><span class="ok">Approval confirmed. Step 2 is unlocked.</span>'; $('btnBridge').disabled = false; }
+  else { $('approveOut').innerHTML += '<br>Approval not confirmed yet — wait a minute, then reload this page and reconnect to continue with Step 2.'; }
+};
+$('btnBridge').onclick = async () => {
+  if(account !== SOURCE){ warn('STOP — wrong wallet connected.'); return; }
+  warn('');
+  $('btnBridge').disabled = true;
+  try{
+    const q = await freshQuote();
+    if(!q){ $('btnBridge').disabled = false; return; }
+    lastMinAmount = q.minAmount;
+    $('quoteOut').innerHTML = 'Live quote — bridge fee: <span class="ok">'+(Number(q.fee)/1e18).toFixed(8)+' ETH</span> · you receive: <span class="ok">12,000 USDT0</span> on X Layer (guaranteed minimum '+(Number(q.minAmount)/1e6).toLocaleString()+' USDT0).';
+    $('btnSend').style.display = 'block';
+    $('btnSend').disabled = false;
+  }catch(e){
+    warn('Quote failed: '+(e.message||e));
+    $('btnBridge').disabled = false;
+  }
+};
+$('btnSend').onclick = async () => {
+  if(account !== SOURCE){ warn('STOP — wrong wallet connected.'); return; }
+  warn('');
+  $('btnSend').disabled = true;
+  try{
+    const q = await freshQuote(); // re-quote at signing time; never send on a stale fee
+    if(!q){ $('btnSend').disabled = false; return; }
+    $('quoteOut').innerHTML = 'Final quote — bridge fee: <span class="ok">'+(Number(q.fee)/1e18).toFixed(8)+' ETH</span> · you receive: <span class="ok">12,000 USDT0</span> on X Layer.';
+    const data = sendData(q.fee, q.minAmount);
+    const h = await sendTx(data, ADAPTER, '0x' + q.fee.toString(16), 'bridgeOut', 'Bridge');
+    if(h){
+      $('bridgeOut').innerHTML += '<br><span class="ok">Done on Ethereum.</span> Your USDT0 should arrive on X Layer within a few minutes. Track delivery: <a href="https://layerzeroscan.com/tx/'+h+'" target="_blank" rel="noopener">LayerZero Scan</a> · Check your X Layer address: <a href="https://www.okx.com/web3/explorer/xlayer/address/0xbcb938928e0c033f03e6e29497638ee10d99127a" target="_blank" rel="noopener">OKLink</a>';
+    } else { $('btnSend').disabled = false; }
+  }catch(e){
+    warn('Send failed: '+(e.message||e));
+    $('btnSend').disabled = false;
+  }
+};
+</script>
+</body>
+</html>
