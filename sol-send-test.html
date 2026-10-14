@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<!--
+  THE GUARDIANS PACT — Joshua Nguyen, 2026-10-02. Verify first, only Joshua signs,
+  Dragon never holds keys. Guardians Pact: every Limbo build carries this banner —
+  see ~/workspace/crypto/guardians_of_limbo/PACT.md
+
+  Dragon — SOL Test Send (0.1 SOL). ONE job only: a single SystemProgram.transfer
+  of exactly 100000000 lamports (0.1 SOL) from the fixed SOURCE below to the fixed
+  DEST_ADDRESS below, signed by Joshua inside Phantom's own approval sheet.
+  This page never asks for private keys or seed phrases — not once, not ever.
+
+  Pinned library: @solana/web3.js 1.95.3 (lib/index.iife.min.js), fetched from
+  https://cdn.jsdelivr.net/npm/@solana/web3.js@1.95.3/lib/index.iife.min.js
+  Library sha256 (of the reassembled bundle, verified before it is allowed to run):
+  99f1431018f5c8bf2f6e551f10ff47d9e6e9d980e08c1f296f173ceb80e8cd5f
+  The bundle ships as same-directory chunks (solsend-w1.txt .. solsend-w7.txt)
+  because it exceeds the single-file publish cap; the page fetches the chunks,
+  joins them, and refuses to run if the sha256 does not match the pin above.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dragon — SOL Test Send (0.1 SOL)</title>
+<style>
+  body{background:#0b0e13;color:#e8ecf1;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:18px;line-height:1.5}
+  .wrap{max-width:640px;margin:0 auto}
+  h1{font-size:22px;margin:6px 0 2px}
+  .sub{color:#9fb0c3;font-size:14px;margin-bottom:16px}
+  .card{background:#131922;border:1px solid #26303f;border-radius:12px;padding:14px 16px;margin:12px 0}
+  .row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:14px}
+  .k{color:#9fb0c3;white-space:nowrap}.v{font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;text-align:right}
+  .warn{background:#2a1414;border:1px solid #6e2b2b;color:#ffb4b4;border-radius:12px;padding:12px 16px;font-size:14px;margin:12px 0}
+  .ok{color:#7ee2a0}.bad{color:#ff8080}
+  button{background:#1f6feb;color:#fff;border:0;border-radius:10px;padding:13px 18px;font-size:16px;width:100%;margin:8px 0;cursor:pointer}
+  button:disabled{background:#33404f;color:#8fa1b5;cursor:not-allowed}
+  .hash{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+  a{color:#6cb2ff}
+  .small{font-size:13px;color:#9fb0c3}
+  #status{font-size:15px;margin:10px 0;min-height:22px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Dragon — SOL Test Send (0.1 SOL)</h1>
+  <div class="sub">One test transfer, one signature. Nothing happens without your approval in Phantom.</div>
+
+  <div class="warn" id="destwarn" style="display:none"><b>Destination not set yet.</b> Dragon must put the real destination address into this page before it can send anything. Sending is disabled.</div>
+
+  <div class="card">
+    <div class="row"><span class="k">From</span><span class="v" id="fromAddr"></span></div>
+    <div class="row"><span class="k">To</span><span class="v" id="toAddr"></span></div>
+    <div class="row"><span class="k">Amount</span><span class="v">0.1 SOL (100,000,000 lamports)</span></div>
+    <div class="row"><span class="k">Network</span><span class="v">Solana mainnet</span></div>
+  </div>
+
+  <button id="connect">Connect Phantom</button>
+  <button id="send" disabled>Send 0.1 SOL</button>
+  <p id="status" class="small">Loading the pinned library…</p>
+
+  <div class="card" id="result" style="display:none">
+    <div class="step ok">Sent ✓</div>
+    <p class="small">Transaction signature:</p>
+    <p class="hash" id="sig"></p>
+    <p><a id="solscan" href="#" target="_blank" rel="noopener">View on Solscan</a></p>
+    <p class="small">Tell Dragon this signature — Dragon verifies it on-chain before any next step.</p>
+  </div>
+
+  <p class="small">This page is locked: it can only send from the From address above, only to the To address above, only 0.1 SOL. If Phantom connects any other account, the page refuses to send.</p>
+</div>
+
+<script>
+"use strict";
+
+/* ---- fixed parameters (machine-set; do not hand-edit) ---- */
+var SOURCE_ADDRESS = "8RNUw4N655VSrZKuhGdywhbSMDTrheguFPfxbpE2NZHQ";
+const DEST_ADDRESS = "E1DC9HGry8xuq5sFPSNo7YzPgTsDzmaanWfjRckhS6fV";
+var LAMPORTS = 100000000; /* exactly 0.1 SOL */
+var RPC_URL = "https://api.mainnet-beta.solana.com";
+var BUNDLE_SHA256 = "99f1431018f5c8bf2f6e551f10ff47d9e6e9d980e08c1f296f173ceb80e8cd5f";
+var CHUNKS = ['solsend-w1.txt','solsend-w2.txt','solsend-w3.txt','solsend-w4.txt','solsend-w5.txt','solsend-w6.txt','solsend-w7.txt'];
+var BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+var provider = null;
+var connectedKey = null;
+var libReady = false;
+
+function $(id){ return document.getElementById(id); }
+function setStatus(t, cls){ var s = $('status'); s.textContent = t; s.className = cls || ''; }
+function hardAbort(msg){
+  $('send').disabled = true;
+  connectedKey = null;
+  setStatus(msg, 'bad');
+}
+
+/* ---- destination guard: placeholder or non-base58 means this page can never send ---- */
+function destIsValid(){
+  if (DEST_ADDRESS === "__DEST_ADDRESS__") return false;
+  if (!BASE58_RE.test(DEST_ADDRESS)) return false;
+  return true;
+}
+function destParses(){
+  try { new solanaWeb3.PublicKey(DEST_ADDRESS); return true; }
+  catch (e) { return false; }
+}
+
+/* ---- pinned library loading (chunked, sha256-checked, same pattern as the Key Finder page) ---- */
+function sha256hex(text){
+  var buf = new TextEncoder().encode(text);
+  return crypto.subtle.digest('SHA-256', buf).then(function(h){
+    return Array.prototype.map.call(new Uint8Array(h), function(b){ return ('0'+b.toString(16)).slice(-2); }).join('');
+  });
+}
+function loadBundle(){
+  var parts = [];
+  var chain = Promise.resolve();
+  CHUNKS.forEach(function(name){
+    chain = chain.then(function(){
+      return fetch(name).then(function(r){
+        if(!r.ok) throw new Error('chunk failed: '+name);
+        return r.text();
+      }).then(function(t){ parts.push(t); });
+    });
+  });
+  return chain.then(function(){
+    var code = parts.join('');
+    return sha256hex(code).then(function(h){
+      if(h !== BUNDLE_SHA256) throw new Error('Library check failed — do not use this page. Tell Dragon.');
+      var s = document.createElement('script');
+      s.textContent = code;
+      document.body.appendChild(s);
+      if(typeof solanaWeb3 === 'undefined') throw new Error('Library did not start — tell Dragon.');
+      libReady = true;
+    });
+  });
+}
+
+/* ---- wallet discovery: Phantom injects lazily, so check now and again on every tap ---- */
+function getProvider(){
+  if (window.phantom && window.phantom.solana) return window.phantom.solana;
+  if (window.solana) return window.solana;
+  return null;
+}
+
+function refreshGuards(){
+  var send = $('send');
+  if (!libReady) { send.disabled = true; return; }
+  if (!destIsValid() || !destParses()) {
+    $('destwarn').style.display = 'block';
+    send.disabled = true;
+    return;
+  }
+  if (!connectedKey) { send.disabled = true; return; }
+  if (connectedKey !== SOURCE_ADDRESS) { send.disabled = true; return; }
+  send.disabled = false;
+}
+
+function init(){
+  $('fromAddr').textContent = SOURCE_ADDRESS;
+  $('toAddr').textContent = DEST_ADDRESS;
+  if (!destIsValid()) $('destwarn').style.display = 'block';
+  loadBundle().then(function(){
+    setStatus('Library loaded and hash-verified. Tap Connect Phantom.', '');
+    refreshGuards();
+    if (!getProvider()) setStatus('Library OK. Open this page inside Phantom\u2019s browser, then tap Connect Phantom.', '');
+  }).catch(function(e){
+    setStatus(e.message || 'Library failed to load — tell Dragon.', 'bad');
+  });
+}
+
+$('connect').addEventListener('click', function(){
+  provider = getProvider();
+  if (!provider) {
+    setStatus('Open this page inside Phantom\u2019s browser.', 'bad');
+    return;
+  }
+  setStatus('Connecting… approve the connection in Phantom.', '');
+  provider.connect().then(function(resp){
+    var pk = (resp && resp.publicKey) || provider.publicKey;
+    if (!pk) throw new Error('Phantom did not return an account — try again.');
+    connectedKey = pk.toString();
+    if (connectedKey !== SOURCE_ADDRESS) {
+      hardAbort('WRONG ACCOUNT — hard stop. Connected: ' + connectedKey + ' — this page only sends from ' + SOURCE_ADDRESS + '. Switch accounts in Phantom and reconnect. Nothing was sent.');
+      return;
+    }
+    if (provider.on) {
+      provider.on('accountChanged', function(newPk){
+        if (!newPk || newPk.toString() !== SOURCE_ADDRESS) {
+          hardAbort('Account changed in Phantom — send disabled. Reconnect with ' + SOURCE_ADDRESS + '.');
+        }
+      });
+    }
+    refreshGuards();
+    if (!destIsValid() || !destParses()) {
+      setStatus('Connected to the right account ✓ — but the destination is not set, so sending stays disabled.', 'bad');
+    } else {
+      setStatus('Connected ✓ ' + connectedKey + ' — review From / To / Amount above, then tap Send.', 'ok');
+    }
+  }).catch(function(e){
+    setStatus('Connection failed: ' + (e && e.message ? e.message : e), 'bad');
+  });
+});
+
+$('send').addEventListener('click', function(){
+  /* re-run every guard at the moment of signing — trust nothing from earlier */
+  if (!libReady) { hardAbort('Library not ready — send aborted.'); return; }
+  if (!destIsValid() || !destParses()) { hardAbort('Destination is not a valid set address — send aborted.'); return; }
+  provider = provider || getProvider();
+  if (!provider || !provider.publicKey) { hardAbort('Wallet not connected — send aborted.'); return; }
+  if (provider.publicKey.toString() !== SOURCE_ADDRESS) {
+    hardAbort('Connected account is no longer ' + SOURCE_ADDRESS + ' — send aborted. Nothing was sent.');
+    return;
+  }
+  $('send').disabled = true;
+  $('connect').disabled = true;
+  setStatus('Building the transfer…', '');
+  var connection = new solanaWeb3.Connection(RPC_URL, 'confirmed');
+  connection.getLatestBlockhash('confirmed').then(function(bh){
+    var from = new solanaWeb3.PublicKey(SOURCE_ADDRESS);
+    var to = new solanaWeb3.PublicKey(DEST_ADDRESS);
+    var tx = new solanaWeb3.Transaction();
+    tx.add(solanaWeb3.SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports: LAMPORTS }));
+    tx.feePayer = from;
+    tx.recentBlockhash = bh.blockhash;
+    setStatus('Review in Phantom: 0.1 SOL from ' + SOURCE_ADDRESS + ' to ' + DEST_ADDRESS + ' — sign only if every character matches.', '');
+    return provider.signAndSendTransaction(tx);
+  }).then(function(res){
+    var sig = (res && res.signature) ? res.signature : String(res);
+    $('sig').textContent = sig;
+    $('solscan').href = 'https://solscan.io/tx/' + sig;
+    $('result').style.display = 'block';
+    setStatus('Sent ✓ — Dragon now verifies this signature on-chain.', 'ok');
+  }).catch(function(e){
+    $('connect').disabled = false;
+    refreshGuards();
+    setStatus('Send failed or was rejected: ' + (e && e.message ? e.message : e) + ' — nothing was confirmed sent. Tell Dragon exactly what this says.', 'bad');
+  });
+});
+
+init();
+</script>
+</body>
+</html>
