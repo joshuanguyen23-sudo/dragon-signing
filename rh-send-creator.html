@@ -9,6 +9,9 @@
   Robinhood Chain (chainId 4663) from the trading wallet
   0x328B6B7f39CcC35CDf0655Cfb8D165f268E02c4B to the creator
   wallet 0x47cD551DE390355C1bf7088797B795e0AbB78E2F.
+  v2: connects two ways — WalletConnect (scan the QR code with
+  the wallet app, from any browser) or the wallet app's own
+  in-app browser. Same guards, same locked transfer.
   ============================================================
 -->
 <html lang="en">
@@ -22,17 +25,22 @@
   .warn{background:#3a1414;border:1px solid #a33;border-radius:10px;padding:12px 14px;margin:12px 0;font-size:16px;display:none}
   .card{background:#141926;border:1px solid #26314a;border-radius:12px;padding:16px;margin:14px 0}
   button{background:#2b50c8;color:#fff;border:0;border-radius:10px;padding:16px 18px;font-size:19px;width:100%;margin-top:12px}
+  button.secondary{background:#1c2740;border:1px solid #3a4670}
   button:disabled{background:#33415e;color:#93a0b4}
   .big{font-size:21px;font-weight:700}
   .mono{font-family:ui-monospace,Menlo,monospace;word-break:break-all;background:#0b0e14;border:1px solid #3a4670;border-radius:10px;padding:12px;font-size:16px;margin:6px 0}
   .lbl{color:#93a0b4;font-size:14px;text-transform:uppercase;letter-spacing:.06em}
   .good{color:#5fd68a}.bad{color:#ff8080}.dim{color:#93a0b4}
   a{color:#6cb2ff}
+  .hidden{display:none !important}
+  .qrwrap{text-align:center;margin:12px 0}
+  .qrwrap canvas{background:#fff;border-radius:8px;max-width:100%;height:auto}
+  .uri{width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#0b0e14;color:#e8ecf1;border:1px solid #3a4670;border-radius:10px;padding:10px}
 </style>
 </head>
 <body>
 <h1>Send 6.7 ETH to your Creator Wallet</h1>
-<p>This page makes <b>one</b> plain transfer on <b>Robinhood Chain</b> — nothing else. It is hard-locked: if the connected wallet or the network is not exactly the one below, the page stops and the Send button never unlocks. Your wallet asks you to approve before anything moves.</p>
+<p>This page makes <b>one</b> plain transfer on <b>Robinhood Chain</b> — nothing else. It is hard-locked: if the connected wallet or the network is not exactly the one below, the page stops and the Send button never unlocks. You can connect from <b>any browser</b> by scanning a QR code with your wallet app, or by opening this page inside the wallet app's own browser. Your wallet asks you to approve before anything moves.</p>
 
 <div class="card">
   <div class="lbl">From (your trading wallet)</div>
@@ -49,8 +57,17 @@
 
 <div class="card">
   <div class="big">Step 1 — Connect</div>
-  <p class="dim">Open this page inside the wallet app that holds the trading wallet above, then connect.</p>
-  <button id="connect" disabled>Loading…</button>
+  <p class="dim"><b>Easiest:</b> tap “Connect with WalletConnect”, then scan the QR code with the wallet app that holds the trading wallet above (OKX or Phantom) and approve the connection there. Or open this page inside that wallet app's own browser and use the second button.</p>
+  <button id="connectWc" disabled>Loading…</button>
+  <div id="wcPanel" class="hidden">
+    <div class="qrwrap"><canvas id="wcQr" width="264" height="264"></canvas></div>
+    <div class="lbl">Pairing link (or copy it into the wallet's WalletConnect screen)</div>
+    <textarea id="wcUri" class="uri" rows="3" readonly></textarea>
+    <button id="wcCopyBtn" class="secondary">Copy pairing link</button>
+    <button id="wcCancelBtn" class="secondary">Cancel</button>
+  </div>
+  <button id="connectInj" class="secondary" disabled>Connect wallet in this browser</button>
+  <button id="wcDisconnectBtn" class="secondary hidden">Disconnect WalletConnect</button>
   <p id="cstatus" class="dim"></p>
 </div>
 
@@ -70,11 +87,23 @@ var EXPECTED_TO = '0x47cD551DE390355C1bf7088797B795e0AbB78E2F';
 var VALUE_WEI = 6700000000000000000n;
 var EXPECTED_CHAIN_ID = 4663;
 var EXPECTED_CHAIN_HEX = '0x1237';
-var BUNDLE_SHA256 = 'c8550f9644492f2d1278467b301c615c768a0d61d5c22d5bcd107ec7c9cbd329';
-var CHUNKS = ['rhsend-e1.txt','rhsend-e2.txt','rhsend-e3.txt','rhsend-e4.txt','rhsend-e5.txt','rhsend-e6.txt','rhsend-e7.txt','rhsend-e8.txt'];
+var WC_CHAIN = 'eip155:4663';
+var REOWN_PROJECT_ID = 'bdb981c082ec6f7a1617d0b8961f5bb6';
+var ETHERS_BUNDLE_SHA256 = 'c8550f9644492f2d1278467b301c615c768a0d61d5c22d5bcd107ec7c9cbd329';
+var ETHERS_CHUNKS = ['rhsend-e1.txt','rhsend-e2.txt','rhsend-e3.txt','rhsend-e4.txt','rhsend-e5.txt','rhsend-e6.txt','rhsend-e7.txt','rhsend-e8.txt'];
+var WC_BUNDLE_SHA256 = '03f1fddc5f60a741ce0a8c292665a1df82a69fc189a192f51236ae713e0d8235';
+var WC_CHUNKS = ['rhsend-w1.txt','rhsend-w2.txt','rhsend-w3.txt','rhsend-w4.txt','rhsend-w5.txt','rhsend-w6.txt'];
+var QR_CHUNK = 'rhsend-qr.txt';
+var QR_SHA256 = '00d7a4cb694b2fc4fc3b0916dc728227feec62cbbcc43a318c02d34dd6df3b92';
 
 var account = null;
 var txVerified = false;
+var transport = null; // 'injected' | 'wc'
+var signClient = null;
+var wcSession = null;
+var wcRun = null;
+var libsEthers = false;
+var libsWc = false;
 
 function sha256hex(text){
   var buf = new TextEncoder().encode(text);
@@ -85,13 +114,26 @@ function sha256hex(text){
 function $(id){ return document.getElementById(id); }
 function warn(msg){ var w = $('warn'); if(!msg){ w.style.display='none'; w.textContent=''; return; } w.style.display='block'; w.textContent = msg; }
 function lockSend(){ txVerified = false; $('send').disabled = true; }
+function errorMessage(err){
+  if(!err) return 'Unknown error.';
+  var code = err && (err.code !== undefined ? err.code : (err.data && err.data.code));
+  if(code === 4001) return 'You rejected the request in your wallet.';
+  if(err.message){
+    var m = String(err.message);
+    if(/user rejected|user denied|rejected/i.test(m)) return 'You rejected the request in your wallet.';
+    return m.length > 300 ? m.slice(0, 300) + '…' : m;
+  }
+  try { return JSON.stringify(err).slice(0, 300); } catch(e){ return 'Unknown error.'; }
+}
 
-function loadBundle(){
+// Fetch a bundle's chunks in order, verify the concatenated sha256
+// against its pin, and only then run the code. Any mismatch = abort.
+function loadBundle(chunks, pinned){
   var parts = [];
   var chain = Promise.resolve();
-  CHUNKS.forEach(function(name){
+  chunks.forEach(function(name){
     chain = chain.then(function(){
-      return fetch(name).then(function(r){
+      return fetch(name, { cache: 'no-store' }).then(function(r){
         if(!r.ok) throw new Error('chunk failed: '+name);
         return r.text();
       }).then(function(t){ parts.push(t); });
@@ -100,11 +142,10 @@ function loadBundle(){
   return chain.then(function(){
     var code = parts.join('');
     return sha256hex(code).then(function(h){
-      if(h !== BUNDLE_SHA256) throw new Error('library check failed — do not use this page. Tell Dragon.');
+      if(h !== pinned) throw new Error('library check failed — do not use this page. Tell Dragon.');
       var s = document.createElement('script');
       s.textContent = code;
       document.body.appendChild(s);
-      if(typeof ethers === 'undefined') throw new Error('library did not start — tell Dragon.');
     });
   });
 }
@@ -135,10 +176,28 @@ function assertTx(tx){
   return null;
 }
 
-function connect(){
+// Shared gate: whichever way the wallet connected, Send unlocks only
+// after the exact transaction passes the decode-back assert.
+function armSend(){
+  var tx = buildTx();
+  var err = assertTx(tx);
+  if(err){
+    $('cstatus').innerHTML = '<span class="bad">STOP — self-check failed.</span>';
+    warn('STOP — the page\'s own check failed (' + err + '). Do not use this page. Tell Dragon. Nothing was signed.');
+    return false;
+  }
+  txVerified = true;
+  $('cstatus').innerHTML = '<span class="good">Connected: ' + account + '</span><br>Network: Robinhood Chain (4663) ✓<br>Transfer re-checked field by field ✓ — Send is unlocked.';
+  $('send').disabled = false;
+  return true;
+}
+
+/* ---------------- injected provider (wallet app's own browser) ---------------- */
+
+function connectInjected(){
   warn('');
   lockSend();
-  if(!window.ethereum){ warn('No wallet found in this browser. Open this page inside your wallet app browser (the one holding the trading wallet), then connect.'); return; }
+  if(!window.ethereum){ warn('No wallet found in this browser. Use “Connect with WalletConnect” above and scan the QR code with your wallet app — or open this page inside your wallet app browser (the one holding the trading wallet), then connect.'); return; }
   ethereum.request({ method: 'eth_requestAccounts' }).then(function(accs){
     account = (accs && accs[0]) ? accs[0] : null;
     return ethereum.request({ method: 'eth_chainId' });
@@ -151,31 +210,200 @@ function connect(){
       try{ ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: EXPECTED_CHAIN_HEX }] }); }catch(e){}
       return;
     }
-    // HARD ABORT — wrong account.
+    // HARD ABORT — wrong account (the connected address is shown).
     if(!account || account.toLowerCase() !== EXPECTED_FROM.toLowerCase()){
       $('cstatus').innerHTML = '<span class="bad">STOP — wrong wallet connected.</span>';
       warn('STOP — connected wallet is ' + (account || '(none)') + '. This page only works for 0x328B6B7f39CcC35CDf0655Cfb8D165f268E02c4B. Switch accounts in your wallet and tap Connect again. Nothing was signed.');
       return;
     }
-    // Decode-back assert on the exact tx this page would submit.
-    var tx = buildTx();
-    var err = assertTx(tx);
-    if(err){
-      $('cstatus').innerHTML = '<span class="bad">STOP — self-check failed.</span>';
-      warn('STOP — the page\'s own check failed (' + err + '). Do not use this page. Tell Dragon. Nothing was signed.');
-      return;
-    }
-    txVerified = true;
-    $('cstatus').innerHTML = '<span class="good">Connected: ' + account + '</span><br>Network: Robinhood Chain (4663) ✓<br>Transfer re-checked field by field ✓ — Send is unlocked.';
-    $('send').disabled = false;
+    transport = 'injected';
+    armSend();
   }).catch(function(e){
     warn('Connection failed: ' + (e && e.message ? e.message : e));
   });
 }
 
-function send(){
+/* ---------------- WalletConnect (scan from any browser) ---------------- */
+
+function drawQr(text){
+  var canvas = $('wcQr');
+  if(!canvas) return;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if(typeof qrcode !== 'function') return;
+  try {
+    var qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    var n = qr.getModuleCount();
+    var quiet = 4;
+    var total = n + quiet * 2;
+    var scale = Math.floor(canvas.width / total);
+    if(scale < 1) scale = 1;
+    var offset = Math.floor((canvas.width - total * scale) / 2);
+    ctx.fillStyle = '#000000';
+    for(var r = 0; r < n; r++){
+      for(var c = 0; c < n; c++){
+        if(qr.isDark(r, c)) ctx.fillRect(offset + (c + quiet) * scale, offset + (r + quiet) * scale, scale, scale);
+      }
+    }
+  } catch(e){ /* pairing link below stays copyable */ }
+}
+
+function wcClient(){
+  if(signClient) return Promise.resolve(signClient);
+  var WC = window['@walletconnect/sign-client'];
+  if(!WC || !WC.SignClient || typeof WC.SignClient.init !== 'function'){
+    return Promise.reject(new Error('The WalletConnect library didn\'t load. Reload the page and try again.'));
+  }
+  return WC.SignClient.init({
+    projectId: REOWN_PROJECT_ID,
+    metadata: {
+      name: 'Guardians of Limbo — Send 6.7 ETH to Creator Wallet',
+      description: 'One plain transfer of exactly 6.7 ETH on Robinhood Chain, from the trading wallet to the creator wallet. Dragon prepares; Joshua alone signs.',
+      url: 'https://joshuanguyen23-sudo.github.io/dragon-signing/rh-send-creator.html',
+      icons: []
+    }
+  }).then(function(client){
+    signClient = client;
+    client.on('session_delete', function(ev){
+      if(wcSession && ev && ev.topic === wcSession.topic){ wcSession = null; onWcDisconnected('The wallet connection was closed in your wallet app. Connect again to continue.'); }
+    });
+    client.on('session_expire', function(ev){
+      if(wcSession && ev && ev.topic === wcSession.topic){ wcSession = null; onWcDisconnected('The wallet connection expired. Connect again to continue.'); }
+    });
+    client.on('session_update', function(ev){
+      if(wcSession && ev && ev.topic === wcSession.topic){ lockSend(); $('cstatus').textContent = 'Wallet connection changed — tap Connect again.'; }
+    });
+    return client;
+  });
+}
+
+function stopWcWait(){
+  if(wcRun) wcRun.cancelled = true;
+  wcRun = null;
+  $('wcPanel').classList.add('hidden');
+  if(!wcSession){
+    $('connectWc').disabled = false;
+    $('connectWc').textContent = 'Connect with WalletConnect — scan QR';
+  }
+}
+
+function onWcDisconnected(msg){
+  if(transport === 'wc'){ transport = null; account = null; }
+  lockSend();
+  $('wcDisconnectBtn').classList.add('hidden');
+  $('connectWc').disabled = false;
+  $('connectWc').textContent = 'Connect with WalletConnect — scan QR';
+  if(msg) $('cstatus').textContent = msg;
+}
+
+function wcRequest(method, params){
+  return signClient.request({
+    topic: wcSession.topic,
+    chainId: WC_CHAIN,
+    request: { method: method, params: params || [] }
+  });
+}
+
+function connectWc(){
   warn('');
-  if(!txVerified){ warn('STOP — connect and pass the checks first.'); return; }
+  lockSend();
+  if(!libsWc){ warn('Secure libraries are still loading — wait a moment and tap again.'); return; }
+  if(wcSession) return;
+  $('connectWc').disabled = true;
+  $('connectWc').textContent = 'Setting up secure connection…';
+  var run = wcRun = { cancelled: false };
+  var setupTimer = setTimeout(function(){
+    if(run.cancelled || wcSession) return;
+    stopWcWait();
+    warn('Couldn\'t reach the WalletConnect relay in time. Check your internet connection, then tap connect again.');
+  }, 30000);
+  wcClient().then(function(client){
+    if(run.cancelled) return null;
+    return client.connect({
+      requiredNamespaces: {
+        eip155: {
+          chains: [WC_CHAIN],
+          methods: ['eth_sendTransaction'],
+          events: ['chainChanged', 'accountsChanged']
+        }
+      }
+    });
+  }).then(function(res){
+    if(!res || run.cancelled) return;
+    if(res.uri){
+      clearTimeout(setupTimer);
+      $('wcUri').value = res.uri;
+      drawQr(res.uri);
+      $('wcPanel').classList.remove('hidden');
+      $('connectWc').textContent = 'Waiting for wallet approval…';
+    }
+    res.approval().then(function(session){
+      if(run.cancelled) return;
+      var accounts = [];
+      try { accounts = session.namespaces.eip155.accounts || []; } catch(e){ /* ignore */ }
+      var found = null;
+      var seen = [];
+      for(var i = 0; i < accounts.length; i++){
+        var a = String(accounts[i]).split(':').pop();
+        if(a) seen.push(a);
+        if(a && a.toLowerCase() === EXPECTED_FROM.toLowerCase()) found = a;
+      }
+      stopWcWait();
+      // HARD ABORT — the approved session does not hold the trading
+      // wallet. Show the address that actually connected.
+      if(!found){
+        try { signClient.disconnect({ topic: session.topic, reason: { code: 6000, message: 'Wrong wallet' } }); } catch(e){ /* ignore */ }
+        $('cstatus').innerHTML = '<span class="bad">STOP — wrong wallet connected.</span>';
+        warn('STOP — the wallet that connected is ' + (seen[0] || '(none)') + '. This page only works for 0x328B6B7f39CcC35CDf0655Cfb8D165f268E02c4B. In your wallet app, pick the account that holds the trading wallet, then connect again. Nothing was signed.');
+        return;
+      }
+      wcSession = session;
+      account = found;
+      // HARD ABORT — chain read-back through the session must be 4663.
+      wcRequest('eth_chainId').then(function(chainHex){
+        var chainId = parseInt(chainHex, 16);
+        if(chainId !== EXPECTED_CHAIN_ID){
+          $('cstatus').innerHTML = '<span class="bad">STOP — wrong network (chainId ' + chainId + ').</span>';
+          warn('STOP — the wallet reports chainId ' + chainId + ', not Robinhood Chain (4663). Switch the network in your wallet to Robinhood Chain, then connect again. Nothing was signed.');
+          try { signClient.disconnect({ topic: wcSession.topic, reason: { code: 6000, message: 'Wrong chain' } }); } catch(e){ /* ignore */ }
+          wcSession = null;
+          return;
+        }
+        transport = 'wc';
+        $('wcDisconnectBtn').classList.remove('hidden');
+        $('connectWc').textContent = 'Connected with WalletConnect';
+        armSend();
+      }).catch(function(e){
+        warn('Could not confirm the network through the wallet connection (' + errorMessage(e) + '). Connect again. Nothing was signed.');
+        try { signClient.disconnect({ topic: wcSession.topic, reason: { code: 6000, message: 'Chain check failed' } }); } catch(e2){ /* ignore */ }
+        wcSession = null;
+      });
+    }, function(err){
+      if(run.cancelled) return;
+      stopWcWait();
+      warn(errorMessage(err));
+    });
+  }).catch(function(err){
+    if(run.cancelled) return;
+    clearTimeout(setupTimer);
+    stopWcWait();
+    warn(errorMessage(err));
+  });
+}
+
+/* ---------------- send ---------------- */
+
+function showResult(hash){
+  $('sstatus').innerHTML = '<span class="good">Sent.</span>';
+  $('result').innerHTML = '<div class="lbl">Transaction hash</div><div class="mono">' + hash + '</div>' +
+    '<p><a href="https://robin.etherscan.io/tx/' + hash + '" target="_blank" rel="noopener">View on RobinScan</a></p>' +
+    '<p class="dim">Tell Dragon the hash (or just say “sent”) and Dragon will verify the arrival on-chain.</p>';
+}
+
+function sendInjected(){
   // Re-verify at signing time: account + chain must still match the locks.
   ethereum.request({ method: 'eth_chainId' }).then(function(chainHex){
     if(parseInt(chainHex, 16) !== EXPECTED_CHAIN_ID) throw new Error('network changed — aborting. Reconnect on Robinhood Chain.');
@@ -192,10 +420,7 @@ function send(){
     return ethereum.request({ method: 'eth_sendTransaction', params: [{ from: tx.from, to: tx.to, value: tx.value }] });
   }).then(function(hash){
     if(!hash) return;
-    $('sstatus').innerHTML = '<span class="good">Sent.</span>';
-    $('result').innerHTML = '<div class="lbl">Transaction hash</div><div class="mono">' + hash + '</div>' +
-      '<p><a href="https://robin.etherscan.io/tx/' + hash + '" target="_blank" rel="noopener">View on RobinScan</a></p>' +
-      '<p class="dim">Tell Dragon the hash (or just say “sent”) and Dragon will verify the arrival on-chain.</p>';
+    showResult(hash);
   }).catch(function(e){
     $('send').disabled = false;
     warn('Not sent: ' + (e && e.message ? e.message : e));
@@ -203,18 +428,100 @@ function send(){
   });
 }
 
-$('connect').addEventListener('click', connect);
-$('send').addEventListener('click', send);
-if(window.ethereum){
-  ethereum.on && ethereum.on('accountsChanged', function(){ lockSend(); $('cstatus').textContent = 'Wallet account changed — tap Connect again.'; });
-  ethereum.on && ethereum.on('chainChanged', function(){ lockSend(); $('cstatus').textContent = 'Network changed — tap Connect again.'; });
+function sendWc(){
+  if(!signClient || !wcSession){ warn('STOP — the wallet connection is closed. Connect again.'); return; }
+  // Re-verify at signing time, through the session: chain + account.
+  wcRequest('eth_chainId').then(function(chainHex){
+    if(parseInt(chainHex, 16) !== EXPECTED_CHAIN_ID) throw new Error('network changed — aborting. Reconnect on Robinhood Chain.');
+    return wcRequest('eth_accounts');
+  }).then(function(accs){
+    var now = null;
+    if(accs && accs.length){
+      for(var i = 0; i < accs.length; i++){
+        var a = String(accs[i]).split(':').pop();
+        if(a && a.toLowerCase() === EXPECTED_FROM.toLowerCase()) now = a;
+      }
+    }
+    if(!now) throw new Error('account changed — aborting. Reconnect with the trading wallet.');
+    account = now;
+    var tx = buildTx();
+    var err = assertTx(tx);
+    if(err) throw new Error('self-check failed at send time (' + err + ') — aborting.');
+    $('send').disabled = true;
+    $('sstatus').textContent = 'Check your wallet app and approve the transfer…';
+    return wcRequest('eth_sendTransaction', [{ from: tx.from, to: tx.to, value: tx.value }]);
+  }).then(function(hash){
+    if(!hash) return;
+    showResult(hash);
+  }).catch(function(e){
+    $('send').disabled = false;
+    warn('Not sent: ' + errorMessage(e));
+    $('sstatus').textContent = '';
+  });
 }
 
-loadBundle().then(function(){
-  var b = $('connect');
-  b.disabled = false; b.textContent = 'Connect wallet';
+function send(){
+  warn('');
+  if(!txVerified){ warn('STOP — connect and pass the checks first.'); return; }
+  if(transport === 'wc'){ sendWc(); }
+  else if(transport === 'injected'){ sendInjected(); }
+  else { warn('STOP — connect first.'); }
+}
+
+$('connectWc').addEventListener('click', connectWc);
+$('connectInj').addEventListener('click', connectInjected);
+$('send').addEventListener('click', send);
+$('wcCancelBtn').addEventListener('click', function(){ stopWcWait(); });
+$('wcCopyBtn').addEventListener('click', function(){
+  var text = $('wcUri').value;
+  var btn = $('wcCopyBtn');
+  function mark(){ btn.textContent = 'Copied — now paste it in your wallet app'; setTimeout(function(){ btn.textContent = 'Copy pairing link'; }, 2500); }
+  if(!text){ mark(); return; }
+  if(navigator.clipboard && typeof navigator.clipboard.writeText === 'function'){
+    navigator.clipboard.writeText(text).then(mark, mark);
+  } else {
+    $('wcUri').focus();
+    $('wcUri').select();
+    try { document.execCommand('copy'); } catch(e){ /* ignore */ }
+    mark();
+  }
+});
+$('wcDisconnectBtn').addEventListener('click', function(){
+  warn('');
+  if(signClient && wcSession){
+    var topic = wcSession.topic;
+    wcSession = null;
+    try { Promise.resolve(signClient.disconnect({ topic: topic, reason: { code: 6000, message: 'User disconnected' } })).catch(function(){}); } catch(e){ /* ignore */ }
+  }
+  onWcDisconnected('Disconnected.');
+});
+if(window.ethereum){
+  ethereum.on && ethereum.on('accountsChanged', function(){ if(transport === 'injected'){ lockSend(); $('cstatus').textContent = 'Wallet account changed — tap Connect again.'; } });
+  ethereum.on && ethereum.on('chainChanged', function(){ if(transport === 'injected'){ lockSend(); $('cstatus').textContent = 'Network changed — tap Connect again.'; } });
+}
+
+// Load all three pinned bundles; each button unlocks only when its
+// libraries verified. Ethers gates both flows (decode-back assert);
+// WalletConnect additionally needs its bundle + the QR chunk.
+loadBundle(ETHERS_CHUNKS, ETHERS_BUNDLE_SHA256).then(function(){
+  if(typeof ethers === 'undefined') throw new Error('library did not start — tell Dragon.');
+  libsEthers = true;
+  var b = $('connectInj');
+  b.disabled = false; b.textContent = 'Connect wallet in this browser';
+  if(libsWc){ var w = $('connectWc'); w.disabled = false; w.textContent = 'Connect with WalletConnect — scan QR'; }
 }).catch(function(e){
   $('cstatus').textContent = 'Page failed to start safely: ' + e.message;
+});
+loadBundle(WC_CHUNKS, WC_BUNDLE_SHA256).then(function(){
+  return loadBundle([QR_CHUNK], QR_SHA256);
+}).then(function(){
+  var WC = window['@walletconnect/sign-client'];
+  if(!WC || !WC.SignClient) throw new Error('WalletConnect library did not start — tell Dragon.');
+  if(typeof qrcode !== 'function') throw new Error('QR library did not start — tell Dragon.');
+  libsWc = true;
+  if(libsEthers){ var w = $('connectWc'); w.disabled = false; w.textContent = 'Connect with WalletConnect — scan QR'; }
+}).catch(function(e){
+  $('cstatus').textContent = 'WalletConnect failed to start safely: ' + e.message;
 });
 </script>
 </body>
