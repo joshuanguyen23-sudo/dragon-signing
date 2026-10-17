@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<!-- Guardians of Limbo — Pact build. One page, one job: a 10 USDT test send
+     from Joshua's OKX wallet to his Kraken deposit on Ethereum. Dragon built
+     and verified this page; only Joshua's wallet signs. Kill after use. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send 10 USDT to Kraken — Test</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; background: #0b0e13; color: #e8ecf1; }
+  .card { max-width: 520px; margin: 0 auto; background: #141a22; border: 1px solid #26303d; border-radius: 16px; padding: 22px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #9fb0c3; font-size: 13px; margin-bottom: 16px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #222b36; font-size: 14px; }
+  .row b { text-align: right; word-break: break-all; font-weight: 600; }
+  .row span { color: #9fb0c3; flex-shrink: 0; }
+  .addr { font-family: ui-monospace, monospace; font-size: 12px !important; }
+  button { width: 100%; padding: 14px; margin-top: 16px; border: 0; border-radius: 12px; font-size: 16px; font-weight: 700; background: #2f81f7; color: #fff; }
+  button:disabled { background: #31435c; color: #8fa3bb; }
+  #status { margin-top: 14px; font-size: 14px; line-height: 1.45; color: #c9d6e4; word-break: break-all; }
+  .ok { color: #3fb68b; } .bad { color: #f26d6d; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Send 10 USDT → Kraken</h1>
+  <div class="sub">Test send · Ethereum network · Guardians of Limbo signing page</div>
+  <div class="row"><span>From (your OKX wallet)</span><b class="addr">0x779Ded0c9e1022225f8E0630b35a9b54bE713736</b></div>
+  <div class="row"><span>To (Kraken deposit)</span><b class="addr">0x2577a94fFB9E034756D507e02715E0f830bFA600</b></div>
+  <div class="row"><span>Amount</span><b>10 USDT</b></div>
+  <div class="row"><span>Token contract</span><b class="addr">0xdAC17F958D2ee523a2206206994597C13D831ec7</b></div>
+  <div class="row"><span>Network</span><b>Ethereum (chain 1)</b></div>
+  <button id="connect">Connect Wallet</button>
+  <button id="send" disabled>Send 10 USDT</button>
+  <div id="status">Open this page inside your OKX Wallet browser, with the wallet above selected. Then tap Connect.</div>
+</div>
+<script>
+const EXPECTED_FROM = "0x779Ded0c9e1022225f8E0630b35a9b54bE713736".toLowerCase();
+const TX = { to: "0xdAC17F958D2ee523a2206206994597C13D831ec7", data: "0xa9059cbb0000000000000000000000002577a94ffb9e034756d507e02715e0f830bfa6000000000000000000000000000000000000000000000000000000000000989680", value: "0x0" };
+let provider = null, account = null;
+const $ = id => document.getElementById(id);
+function say(html, cls) { $("status").innerHTML = html; $("status").className = cls || ""; }
+function findProvider() {
+  const cands = [];
+  if (window.okxwallet) cands.push(window.okxwallet);
+  if (window.ethereum) {
+    if (Array.isArray(window.ethereum.providers)) cands.push(...window.ethereum.providers);
+    cands.push(window.ethereum);
+  }
+  return cands.find(p => p && typeof p.request === "function") || null;
+}
+async function refresh() {
+  provider = findProvider();
+  if (!provider) { say("No wallet found yet. Open this page in the OKX Wallet in-app browser, then tap Connect again."); return; }
+  try {
+    const accs = await provider.request({ method: "eth_accounts" });
+    if (accs && accs.length) {
+      account = accs[0].toLowerCase();
+      const chain = await provider.request({ method: "eth_chainId" });
+      if (account !== EXPECTED_FROM) {
+        $("send").disabled = true;
+        say("Connected account is <b>" + account + "</b> — that is NOT the OKX wallet for this send. Switch to the wallet ending …713736 in OKX, then tap Connect again.", "bad");
+        return;
+      }
+      if (chain !== "0x1") {
+        $("send").disabled = true;
+        say("Wallet is on the wrong network. Switch to Ethereum mainnet, then tap Connect again.", "bad");
+        try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch (e) {}
+        return;
+      }
+      $("send").disabled = false;
+      say("Connected: correct wallet, Ethereum network. Review the details above, then tap Send and approve in OKX.", "ok");
+    } else {
+      say("Wallet found. Tap Connect and approve the connection in OKX.");
+    }
+  } catch (e) { say("Wallet check failed: " + (e.message || e)); }
+}
+$("connect").onclick = async () => {
+  provider = findProvider();
+  if (!provider) { say("No wallet found. Open this page inside the OKX Wallet browser (DApps tab, paste the link), then try again.", "bad"); return; }
+  try { await provider.request({ method: "eth_requestAccounts" }); } catch (e) { say("Connection rejected: " + (e.message || e), "bad"); return; }
+  refresh();
+};
+$("send").onclick = async () => {
+  if (!provider || !account) return;
+  $("send").disabled = true;
+  say("Waiting for your approval in OKX…");
+  try {
+    const hash = await provider.request({ method: "eth_sendTransaction", params: [{ from: account, ...TX }] });
+    say("Sent! Transaction hash:<br><b>" + hash + "</b><br>Tell Dragon — he is verifying it on-chain now.", "ok");
+  } catch (e) {
+    $("send").disabled = false;
+    say("Send cancelled or failed: " + (e.message || e), "bad");
+  }
+};
+setInterval(() => { if (!account) refresh(); }, 1500);
+refresh();
+</script>
+</body>
+</html>
